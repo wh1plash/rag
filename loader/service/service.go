@@ -117,6 +117,12 @@ func (s *Service) DocumentSave(ctx context.Context, docChan <-chan *types.Docume
 			return nil
 		}
 
+		//remove old chunks from DB
+		if err := s.store.DeleteChunksByDocID(ctx, doc.ID); err != nil {
+			fmt.Println(err)
+			return err
+		}
+
 		// Используем переданный контекст для операций с БД
 		if err := s.store.SaveDocument(ctx, *doc); err != nil {
 			fmt.Println(err)

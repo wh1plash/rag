@@ -1,4 +1,5 @@
 loader/bin
 archive
 bad
+tmp
 .env

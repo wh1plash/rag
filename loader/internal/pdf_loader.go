@@ -192,7 +192,6 @@ func (l *PDFLoader) fetchFile(ctx context.Context, filePath string) (*types.Docu
 	}
 
 	docIDStr := generateDocumentID(filePath)
-	fmt.Println("ID doc string:", docIDStr)
 
 	id, err := uuid.Parse(docIDStr)
 	if err != nil {

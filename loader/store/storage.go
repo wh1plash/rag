@@ -16,6 +16,7 @@ type DBStorer interface {
 	SaveDocument(context.Context, types.Document) error
 	GetDocumentByID(context.Context, uuid.UUID) (*types.Document, error)
 	SaveChunk(context.Context, types.Chunk) error
+	DeleteChunksByDocID(context.Context, uuid.UUID) error
 }
 
 type PostgresStore struct {
@@ -63,6 +64,14 @@ func (p *PostgresStore) GetDocumentByID(ctx context.Context, docID uuid.UUID) (*
 	return doc, nil
 }
 
+func (p *PostgresStore) DeleteChunksByDocID(ctx context.Context, docID uuid.UUID) error {
+	_, err := p.pool.Exec(ctx, "DELETE FROM chunks WHERE doc_id = $1", docID)
+	// if err != nil {
+	// 	return fmt.Errorf("error deleting old chunks: %w", err)
+	// }
+	return err
+}
+
 func (p *PostgresStore) SaveDocument(ctx context.Context, doc types.Document) error {
 	query := `INSERT INTO documents (id, title, source, source_path, created_at, updated_at, version)
 		VALUES ($1, $2, $3, $4, $5, $6, $7)
@@ -84,7 +93,7 @@ func (p *PostgresStore) SaveDocument(ctx context.Context, doc types.Document) er
 		doc.UpdatedAt,
 		doc.Version,
 	)
-	fmt.Println("Saved")
+
 	return err
 }
 
