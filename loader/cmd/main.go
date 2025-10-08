@@ -5,7 +5,6 @@ import (
 	"fmt"
 	"log"
 	"os"
-	"rag/loader/internal"
 	"rag/loader/service"
 	"rag/loader/store"
 	"strconv"
@@ -15,7 +14,6 @@ import (
 
 func init() {
 	mustLoadEnvVariables()
-	internal.CreateDirectories()
 }
 
 func main() {

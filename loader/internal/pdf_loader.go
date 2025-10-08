@@ -15,30 +15,25 @@ import (
 	"github.com/google/uuid"
 )
 
-const (
-	monitoringTime = 2
-	sourceDir      = "./source/"
-	archiveDir     = "./archive/"
-	badDir         = "./bad/"
-	chunkSize      = 10
-	overlap        = 2
-)
-
 type PDFLoader struct {
+	cfg types.Config
+
 	FileMutex       sync.Mutex
 	FileFirstSeen   map[string]time.Time
 	FilesProcessing map[string]bool
 }
 
-func NewPDFLoader() *PDFLoader {
+func NewPDFLoader(cfg types.Config) *PDFLoader {
+	createDirectories(cfg.SourceDir, cfg.ArchiveDir, cfg.BadDir)
 	return &PDFLoader{
+		cfg:             cfg,
 		FileFirstSeen:   make(map[string]time.Time),
 		FilesProcessing: make(map[string]bool),
 	}
 }
 
 func (l *PDFLoader) WatchFile(ctx context.Context, fileChan chan<- string) {
-	fmt.Printf("Start monitoring folder: %s\n", sourceDir)
+	fmt.Printf("Start monitoring folder: %s\n", l.cfg.SourceDir)
 
 	ticker := time.NewTicker(1 * time.Second)
 	defer ticker.Stop()
@@ -56,7 +51,7 @@ func (l *PDFLoader) WatchFile(ctx context.Context, fileChan chan<- string) {
 			fmt.Println("Stopping file watcher (context cancelled)...")
 			return
 		case <-ticker.C:
-			files, err := os.ReadDir(sourceDir)
+			files, err := os.ReadDir(l.cfg.SourceDir)
 			if err != nil {
 				fmt.Printf("error while reading source directory: %s\n", err)
 				continue
@@ -69,7 +64,7 @@ func (l *PDFLoader) WatchFile(ctx context.Context, fileChan chan<- string) {
 					continue
 				}
 
-				filePath := filepath.Join(sourceDir, file.Name())
+				filePath := filepath.Join(l.cfg.SourceDir, file.Name())
 				currentFiles[filePath] = true
 
 				l.FileMutex.Lock()
@@ -91,8 +86,8 @@ func (l *PDFLoader) WatchFile(ctx context.Context, fileChan chan<- string) {
 				firstSeen := l.FileFirstSeen[filePath]
 				l.FileMutex.Unlock()
 
-				if time.Since(firstSeen) > monitoringTime*time.Second {
-					fmt.Printf("The file %s has not been modified for more than %d seconds. Start processing...\n", filePath, monitoringTime)
+				if time.Since(firstSeen) > l.cfg.MonitoringTime {
+					fmt.Printf("The file %s has not been modified for more than %d seconds. Start processing...\n", filePath, l.cfg.MonitoringTime)
 
 					// Помечаем файл как находящийся в обработке
 					l.FileMutex.Lock()
@@ -199,7 +194,7 @@ func (l *PDFLoader) fetchFile(ctx context.Context, filePath string) (*types.Docu
 		return nil, err
 	}
 
-	chunks, err := splitByChunks(filePath, id, chunkSize, overlap)
+	chunks, err := splitByChunks(filePath, id, l.cfg.ChunkSize, l.cfg.ChunkOverlap)
 	if err != nil {
 		return nil, err
 	}
@@ -300,9 +295,9 @@ func (l *PDFLoader) MoveToArchive(filePath string, fileState int) {
 	var state string
 	switch fileState {
 	case 1:
-		state = badDir
+		state = l.cfg.BadDir
 	default:
-		state = archiveDir
+		state = l.cfg.ArchiveDir
 	}
 
 	currentDate := time.Now().Format("2006-01-02")
@@ -339,7 +334,7 @@ func (l *PDFLoader) MoveToArchive(filePath string, fileState int) {
 
 }
 
-func CreateDirectories() error {
+func createDirectories(sourceDir, archiveDir, badDir string) error {
 	dirs := []string{sourceDir, archiveDir, badDir}
 	for _, dir := range dirs {
 		if err := os.MkdirAll(dir, 0755); err != nil {

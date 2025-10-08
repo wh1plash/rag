@@ -7,6 +7,7 @@ import (
 	"log/slog"
 	"os"
 	"os/signal"
+	"strconv"
 
 	"rag/loader/internal"
 	"rag/loader/store"
@@ -26,11 +27,32 @@ type Service struct {
 	loader *internal.PDFLoader
 }
 
+func NewConfig() types.Config {
+	intervalStr := os.Getenv("LOADER_MONITORING_TIME")
+	interval, err := time.ParseDuration(intervalStr)
+	if err != nil {
+		log.Fatal("Error to set ticker interval")
+	}
+
+	chunkSize, _ := strconv.Atoi(os.Getenv("CHUNK_SIZE"))
+	chunkOverlap, _ := strconv.Atoi(os.Getenv("CHUNK_OVERLAP"))
+
+	return types.Config{
+		MonitoringTime: interval,
+		SourceDir:      os.Getenv("LOADER_SOURCE_DIR"),
+		ArchiveDir:     os.Getenv("LOADER_ARCHIVE_DIR"),
+		BadDir:         os.Getenv("LOADER_BAD_DIR"),
+		ChunkSize:      chunkSize,
+		ChunkOverlap:   chunkOverlap,
+	}
+}
+
 func New(storer store.DBStorer) *Service {
+	cfg := NewConfig()
 	return &Service{
 		logger: slog.Default(),
 		store:  storer,
-		loader: internal.NewPDFLoader(),
+		loader: internal.NewPDFLoader(cfg),
 	}
 }
 
@@ -85,7 +107,7 @@ func (s *Service) Run() {
 	close(sigch)
 
 	// Ждем завершения всех горутин с таймаутом
-	shutdownCtx, shutdownCancel := context.WithTimeout(context.Background(), 5*time.Second)
+	shutdownCtx, shutdownCancel := context.WithTimeout(context.Background(), 2*time.Second)
 	defer shutdownCancel()
 
 	done := make(chan struct{})
@@ -146,13 +168,13 @@ func (s *Service) ShouldUpdateFile(ctx context.Context, docID uuid.UUID, modTime
 	doc, err := s.store.GetDocumentByID(ctx, docID)
 	if err != nil {
 		// Документ не найден в БД, значит нужно добавить
-		fmt.Println("Документ не найден в БД, значит нужно добавить")
+		fmt.Println("Document not found in DB. Inserting")
 		return true
 	}
 	// Обновляем если файл изменился
-	fmt.Println("Exists in DB. Check for mod date")
+	fmt.Println("Document exists in DB. Check for mod date")
 	// fmt.Println(modTime)
 	// fmt.Println(doc.UpdatedAt)
-	fmt.Println(modTime.After(doc.UpdatedAt))
+	fmt.Println("Need to update:", modTime.After(doc.UpdatedAt))
 	return modTime.After(doc.UpdatedAt)
 }

@@ -26,3 +26,12 @@ type Document struct {
 	UpdatedAt  time.Time // Время последнего обновления
 	Version    int       // Версия документа
 }
+
+type Config struct {
+	MonitoringTime time.Duration
+	SourceDir      string
+	ArchiveDir     string
+	BadDir         string
+	ChunkSize      int
+	ChunkOverlap   int
+}
