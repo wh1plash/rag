@@ -5,9 +5,11 @@ import (
 	"context"
 	"crypto/md5"
 	"fmt"
+	"log"
 	"os"
 	"path/filepath"
 	"rag/loader/types"
+	"rag/model"
 	"strings"
 	"sync"
 	"time"
@@ -16,7 +18,8 @@ import (
 )
 
 type PDFLoader struct {
-	cfg types.Config
+	cfg      types.Config
+	embedder model.EmbedderInterface
 
 	FileMutex       sync.Mutex
 	FileFirstSeen   map[string]time.Time
@@ -25,10 +28,12 @@ type PDFLoader struct {
 
 func NewPDFLoader(cfg types.Config) *PDFLoader {
 	createDirectories(cfg.SourceDir, cfg.ArchiveDir, cfg.BadDir)
+	embedder := model.NewEmbedder()
 	return &PDFLoader{
 		cfg:             cfg,
 		FileFirstSeen:   make(map[string]time.Time),
 		FilesProcessing: make(map[string]bool),
+		embedder:        embedder,
 	}
 }
 
@@ -87,7 +92,7 @@ func (l *PDFLoader) WatchFile(ctx context.Context, fileChan chan<- string) {
 				l.FileMutex.Unlock()
 
 				if time.Since(firstSeen) > l.cfg.MonitoringTime {
-					fmt.Printf("The file %s has not been modified for more than %d seconds. Start processing...\n", filePath, l.cfg.MonitoringTime)
+					fmt.Printf("The file %s has not been modified for more than %v seconds. Start processing...\n", filePath, l.cfg.MonitoringTime.Seconds())
 
 					// Помечаем файл как находящийся в обработке
 					l.FileMutex.Lock()
@@ -194,7 +199,7 @@ func (l *PDFLoader) fetchFile(ctx context.Context, filePath string) (*types.Docu
 		return nil, err
 	}
 
-	chunks, err := splitByChunks(filePath, id, l.cfg.ChunkSize, l.cfg.ChunkOverlap)
+	chunks, err := l.splitByChunks(filePath, id, l.cfg.ChunkSize, l.cfg.ChunkOverlap)
 	if err != nil {
 		return nil, err
 	}
@@ -223,7 +228,7 @@ func (l *PDFLoader) fetchFile(ctx context.Context, filePath string) (*types.Docu
 	return doc, nil
 }
 
-func splitByChunks(filePath string, id uuid.UUID, chunkSize, overlap int) ([]types.Chunk, error) {
+func (l *PDFLoader) splitByChunks(filePath string, id uuid.UUID, chunkSize, overlap int) ([]types.Chunk, error) {
 
 	file, err := os.Open(filePath)
 	if err != nil {
@@ -256,6 +261,11 @@ func splitByChunks(filePath string, id uuid.UUID, chunkSize, overlap int) ([]typ
 			end = len(words)
 		}
 		content := strings.Join(words[i:end], " ")
+		embedding, err := l.embedder.Embed(content)
+		if err != nil {
+			log.Printf("error creation embedding for chunk %d document %s: %v", i, id, err)
+			continue
+		}
 		chunks = append(chunks, types.Chunk{
 			ID:        uuid.New(),
 			DocID:     id,
@@ -263,7 +273,7 @@ func splitByChunks(filePath string, id uuid.UUID, chunkSize, overlap int) ([]typ
 			Type:      "text",
 			Section:   "",
 			Content:   content,
-			Embedding: append([]float32{0.1, 0.2}, make([]float32, 766)...),
+			Embedding: embedding,
 		})
 
 		if end == len(words) {

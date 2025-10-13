@@ -92,6 +92,18 @@ func (s *Service) Run() {
 		s.DocumentSave(ctx, docChan)
 	}()
 
+	// query := "Test PDF file for testing."
+	// queryEmbedding, err := s.embedder.Embed(query)
+	// if err != nil {
+	// 	fmt.Println("error embedding query", err)
+	// }
+
+	// res, err := s.store.Search(ctx, queryEmbedding, 4)
+	// if err != nil {
+	// 	fmt.Println(err)
+	// }
+	// _ = res
+
 	// Обработка сигналов завершения
 	sigch := make(chan os.Signal, 1)
 	signal.Notify(sigch, os.Interrupt, syscall.SIGTERM)

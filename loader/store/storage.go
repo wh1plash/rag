@@ -10,6 +10,7 @@ import (
 
 	"github.com/google/uuid"
 	"github.com/jackc/pgx/v5/pgxpool"
+	"github.com/pgvector/pgvector-go"
 )
 
 type DBStorer interface {
@@ -17,6 +18,7 @@ type DBStorer interface {
 	GetDocumentByID(context.Context, uuid.UUID) (*types.Document, error)
 	SaveChunk(context.Context, types.Chunk) error
 	DeleteChunksByDocID(context.Context, uuid.UUID) error
+	Search(context.Context, []float32, int) ([]types.Chunk, error)
 }
 
 type PostgresStore struct {
@@ -114,6 +116,59 @@ func toPgVector(v []float32) string {
 		parts[i] = fmt.Sprintf("%f", x)
 	}
 	return "[" + strings.Join(parts, ",") + "]"
+}
+
+func (p *PostgresStore) Search(ctx context.Context, queryVec []float32, limit int) ([]types.Chunk, error) {
+	if len(queryVec) == 0 {
+		return nil, fmt.Errorf("пустой вектор запроса")
+	}
+
+	// Конвертируем float32 в []float32 для pgvector
+	embedding := make([]float32, len(queryVec))
+	copy(embedding, queryVec)
+
+	vector := pgvector.NewVector(embedding)
+
+	query := `
+		SELECT pc.id, pc.doc_id, pc.position, pc.content, pc.embedding,
+		       1-(pc.embedding <=> $1) as distance
+		FROM chunks pc
+		JOIN documents doc ON pc.doc_id = doc.id
+		WHERE pc.embedding IS NOT NULL 
+		ORDER BY pc.embedding <=> $1
+		LIMIT $2
+	`
+	rows, err := p.pool.Query(ctx, query, vector, limit)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+
+	var chunks []types.Chunk
+	for rows.Next() {
+		var chunk types.Chunk
+		var embeddingVector pgvector.Vector
+		err := rows.Scan(
+			&chunk.ID,
+			&chunk.DocID,
+			&chunk.Position,
+			&chunk.Content,
+			&embeddingVector,
+			&chunk.Distance)
+		if err != nil {
+			return nil, err
+		}
+
+		// // Конвертируем pgvector.Vector обратно в []float32
+		// chunk.Embedding = embeddingVector.Slice()
+		// // Сохраняем расстояние для сортировки и отображения
+		// chunk.Distance = distance
+
+		log.Printf("[SEARCH] Найден чанк: %s, Index: %d, (расстояние: %.4f)\n", chunk.DocID, chunk.Position, chunk.Distance)
+		log.Printf("[DEBUG] Chunk embedding length: %d\n", len(chunk.Embedding))
+		chunks = append(chunks, chunk)
+	}
+	return chunks, nil
 }
 
 func (p *PostgresStore) createRagTables(ctx context.Context) error {

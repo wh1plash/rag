@@ -14,6 +14,7 @@ type Chunk struct {
 	Section   string
 	Content   string
 	Embedding []float32
+	Distance  float64
 }
 
 type Document struct {
