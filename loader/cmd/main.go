@@ -6,7 +6,7 @@ import (
 	"log"
 	"os"
 	"rag/loader/service"
-	"rag/loader/store"
+	"rag/store"
 	"strconv"
 
 	"github.com/joho/godotenv"

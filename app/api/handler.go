@@ -7,7 +7,7 @@ import (
 	"rag/app/types"
 	"rag/model"
 
-	"rag/loader/store"
+	"rag/store"
 
 	"github.com/gofiber/fiber/v2"
 )

@@ -7,7 +7,7 @@ import (
 	"log/slog"
 	"os"
 	"rag/app/api"
-	"rag/loader/store"
+	"rag/store"
 	"strconv"
 
 	"github.com/gofiber/fiber/v2"
