@@ -5,7 +5,7 @@ import (
 	"database/sql"
 	"fmt"
 	"log"
-	"rag/loader/types"
+	"rag/types"
 	"strings"
 
 	"github.com/google/uuid"

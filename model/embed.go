@@ -24,7 +24,7 @@ func NewEmbedder() *Embedder {
 	ollamaModel := os.Getenv("OLLAMA_EMBEDDING_MODEL")
 	ollamaEmbedder := NewOllamaEmbedder(ollamaURL, ollamaModel)
 
-	log.Printf("[EMBEDDER] 🤖 Используется локальная Ollama для embeddings (%s)", ollamaModel)
+	log.Printf("[EMBEDDER] 🤖 Uses local Ollama for embeddings (%s)", ollamaModel)
 
 	return &Embedder{
 		ollamaEmbedder: ollamaEmbedder,
@@ -36,7 +36,7 @@ func NewEmbedder() *Embedder {
 func (e *Embedder) Embed(text string) ([]float32, error) {
 	embedding, err := e.ollamaEmbedder.Embed(text)
 	if err != nil {
-		log.Printf("[EMBEDDER] Ошибка Ollama embeddings: %v", err)
+		log.Printf("[EMBEDDER] Error Ollama embeddings: %v", err)
 		return nil, nil
 	}
 	return embedding, nil

@@ -28,8 +28,7 @@ func GenerateAnswer(context string, question string) (string, error) {
 
 	fmt.Println("Startin promt to LLM...")
 
-	prompt := fmt.Sprintf(`You are an assistant that answers questions based on the given context.
-
+	prompt := fmt.Sprintf(`Answer to the questions based on the given context. If there is no information in the knowledge base, answer 'No information for this request'. Nothing else.
 Context:
 %s
 

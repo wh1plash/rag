@@ -10,8 +10,8 @@ import (
 	"strconv"
 
 	"rag/loader/internal"
-	"rag/loader/types"
 	"rag/store"
+	"rag/types"
 	"sync"
 	"syscall"
 	"time"
