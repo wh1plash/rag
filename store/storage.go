@@ -101,21 +101,29 @@ func (p *PostgresStore) SaveDocument(ctx context.Context, doc types.Document) er
 
 func (p *PostgresStore) SaveChunk(ctx context.Context, c types.Chunk) error {
 	query := `
-    INSERT INTO chunks (id, doc_id, position, type, section, content, embedding)
+    INSERT INTO chunks (id, doc_id, index, type, section, content, embedding)
     VALUES ($1, $2, $3, $4, $5, $6, $7)
     `
 	_, err := p.pool.Exec(ctx, query,
-		c.ID, c.DocID, c.Position, c.Type, c.Section, c.Content, toPgVector(c.Embedding),
+		c.ID,
+		c.DocID,
+		c.Index,
+		c.Type,
+		c.Section,
+		c.Content,
+		fmt.Sprintf("[%s]", toPgVector(c.Embedding)),
 	)
+
 	return err
 }
 
 func toPgVector(v []float32) string {
 	parts := make([]string, len(v))
 	for i, x := range v {
-		parts[i] = fmt.Sprintf("%f", x)
+		parts[i] = fmt.Sprintf("%.6f", x)
 	}
-	return "[" + strings.Join(parts, ",") + "]"
+	//return "[" + strings.Join(parts, ",") + "]"
+	return strings.Join(parts, ",")
 }
 
 func (p *PostgresStore) Search(ctx context.Context, queryVec []float32, limit int) ([]types.Chunk, error) {
@@ -124,18 +132,18 @@ func (p *PostgresStore) Search(ctx context.Context, queryVec []float32, limit in
 	}
 
 	// Конвертируем float32 в []float32 для pgvector
-	embedding := make([]float32, len(queryVec))
-	copy(embedding, queryVec)
+	// embedding := make([]float32, len(queryVec))
+	// copy(embedding, queryVec)
 
-	vector := pgvector.NewVector(embedding)
+	vector := pgvector.NewVector(queryVec)
 
 	query := `
-		SELECT pc.id, pc.doc_id, pc.position, pc.content, pc.embedding,
+		SELECT pc.id, pc.doc_id, pc.index, pc.content, pc.embedding,
 		       1-(pc.embedding <=> $1) as distance
 		FROM chunks pc
 		JOIN documents doc ON pc.doc_id = doc.id
 		WHERE pc.embedding IS NOT NULL 
-		ORDER BY pc.embedding <=> $1
+		ORDER BY distance DESC
 		LIMIT $2
 	`
 	rows, err := p.pool.Query(ctx, query, vector, limit)
@@ -151,7 +159,7 @@ func (p *PostgresStore) Search(ctx context.Context, queryVec []float32, limit in
 		err := rows.Scan(
 			&chunk.ID,
 			&chunk.DocID,
-			&chunk.Position,
+			&chunk.Index,
 			&chunk.Content,
 			&embeddingVector,
 			&chunk.Distance)
@@ -164,8 +172,7 @@ func (p *PostgresStore) Search(ctx context.Context, queryVec []float32, limit in
 		// // Сохраняем расстояние для сортировки и отображения
 		// chunk.Distance = distance
 
-		log.Printf("[SEARCH] Найден чанк: %s, Index: %d, (расстояние: %.4f)\n", chunk.DocID, chunk.Position, chunk.Distance)
-		log.Printf("[DEBUG] Chunk embedding length: %d\n", len(chunk.Embedding))
+		log.Printf("[SEARCH] Найден чанк: %s, Index: %d, (расстояние: %.4f)\n", chunk.DocID, chunk.Index, chunk.Distance)
 		chunks = append(chunks, chunk)
 	}
 	return chunks, nil
@@ -191,11 +198,12 @@ func (p *PostgresStore) createRagTables(ctx context.Context) error {
     CREATE TABLE IF NOT EXISTS chunks (
         id UUID PRIMARY KEY,
         doc_id UUID NOT NULL,
-        position INT NOT NULL,
+        index INT NOT NULL,
         type TEXT CHECK (type IN ('text','json')),
         section TEXT,
+		coherence INT default 0,
         content TEXT NOT NULL,
-        embedding vector(768) -- если используем OpenAI ada-002
+        embedding vector(1024)
     );
 
 	-- Индекс для быстрого поиска по вектору

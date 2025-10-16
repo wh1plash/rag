@@ -74,31 +74,30 @@ func (e *OllamaEmbedder) Embed(text string) ([]float32, error) {
 		return nil, fmt.Errorf("failed to unmarshal response: %w", err)
 	}
 
+	norm := normalize64(ollamaResp.Embedding)
+
 	// Конвертируем float64 в float32
-	embedding := make([]float32, len(ollamaResp.Embedding))
+	embedding := make([]float32, len(norm))
 	for i, v := range ollamaResp.Embedding {
 		embedding[i] = float32(v)
 	}
 
-	return normalize(embedding), nil
-
-	//return embedding, nil
+	return embedding, nil
 }
 
 // Normalize принимает срез float32 и возвращает нормализованный вектор
-func normalize(vec []float32) []float32 {
+func normalize64(vec []float64) []float64 {
 	var sum float64
 	for _, v := range vec {
-		sum += float64(v * v)
+		sum += v * v
 	}
 	norm := math.Sqrt(sum)
 	if norm == 0 {
 		return vec // на случай пустого вектора
 	}
 
-	normalized := make([]float32, len(vec))
-	for i, v := range vec {
-		normalized[i] = v / float32(norm)
+	for i, x := range vec {
+		vec[i] = x / norm
 	}
-	return normalized
+	return vec
 }

@@ -28,18 +28,21 @@ func GenerateAnswer(context string, question string) (string, error) {
 
 	fmt.Println("Startin promt to LLM...")
 
-	prompt := fmt.Sprintf(`Answer to the questions based on the given context. If there is no information in the knowledge base, answer 'No information for this request'. Nothing else.
+	prompt := fmt.Sprintf(`Answer to the questions based on the given context. If there is no information in providet context or context is empty then answer 'No information for this request'. Nothing else.
 Context:
 %s
-
-Question: %s
+Question: 
+%s
 Answer:`, context, question)
 
-	fmt.Println("RAW prompt to LLM:", prompt)
-
+	fmt.Println(prompt)
+	fmt.Println("-----------")
 	reqBody, _ := json.Marshal(GenerateRequest{
-		Model:  os.Getenv("LLM_MODEL"),
-		System: "You are a helpful multilingual AI assistant. Always respond in the same language that the question is written in.",
+		Model: os.Getenv("LLM_MODEL"),
+		System: `You are a smart assistant, responding to the user in the language they asked the question in. \n
+				Answer clearly and to the point, without adding any additional information. \n
+				If the context is empty or doesn't contain any information to answer, say, 'No information on this question.' \n
+				Don't add introductions like 'Of course!' or 'Here's the answer:'`,
 		Prompt: prompt,
 	})
 

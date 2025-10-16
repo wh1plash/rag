@@ -269,7 +269,7 @@ func (l *PDFLoader) splitByChunks(filePath string, id uuid.UUID, chunkSize, over
 		chunks = append(chunks, types.Chunk{
 			ID:        uuid.New(),
 			DocID:     id,
-			Position:  pos,
+			Index:     pos,
 			Type:      "text",
 			Section:   "",
 			Content:   content,

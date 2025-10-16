@@ -43,11 +43,6 @@ func (s *Server) Run() {
 		return
 	}
 
-	if err := pool.Init(ctx); err != nil {
-		log.Fatal("error to create tables", err)
-		return
-	}
-
 	var (
 		app            = fiber.New(config)
 		checkHandler   = api.NewCheckHandler

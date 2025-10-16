@@ -27,7 +27,7 @@ func main() {
 	}
 
 	if err := pool.Init(ctx); err != nil {
-		log.Fatal("error to create tables", err)
+		log.Fatal("error to create tables: ", err)
 		return
 	}
 

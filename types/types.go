@@ -9,7 +9,7 @@ import (
 type Chunk struct {
 	ID        uuid.UUID
 	DocID     uuid.UUID
-	Position  int
+	Index     int
 	Type      string
 	Section   string
 	Content   string
