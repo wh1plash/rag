@@ -72,6 +72,9 @@ func (h *RequestHandler) HandleRequest(c *fiber.Ctx) error {
 	fmt.Println("-----------------")
 
 	//fmt.Println("after builder: \n", context)
+	if context == "" {
+		context = "empty"
+	}
 
 	output, err := agent.GenerateAnswer(context, prompt)
 	if err != nil {
