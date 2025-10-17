@@ -24,7 +24,7 @@ type RequestHandler struct {
 }
 
 func NewRequestHandler(contextStore store.DBStorer) *RequestHandler {
-	embedder := model.NewEmbedder()
+	embedder := model.NewOllamaEmbedder()
 	return &RequestHandler{
 		contextStore: contextStore,
 		embedder:     embedder,
@@ -150,12 +150,6 @@ func (h *RequestHandler) buildContext(chunks []types.Chunk) string {
 		sort.SliceStable(grouped[id], func(i, j int) bool {
 			return grouped[id][i].Index < grouped[id][j].Index
 		})
-	}
-	for _, v := range grouped {
-		for _, k := range v {
-			fmt.Printf("----DocID: %s, chunkID: %s, index: %d\n", v[k.Index].DocID, v[k.Index].ID, v[k.Index].Index)
-		}
-
 	}
 
 	//originalCount := len(chunks)

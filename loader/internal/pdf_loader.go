@@ -28,7 +28,7 @@ type PDFLoader struct {
 
 func NewPDFLoader(cfg types.Config) *PDFLoader {
 	createDirectories(cfg.SourceDir, cfg.ArchiveDir, cfg.BadDir)
-	embedder := model.NewEmbedder()
+	embedder := model.NewOllamaEmbedder()
 	return &PDFLoader{
 		cfg:             cfg,
 		FileFirstSeen:   make(map[string]time.Time),

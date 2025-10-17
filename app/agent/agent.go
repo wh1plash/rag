@@ -43,7 +43,7 @@ Answer:`, context, question)
 		Model: os.Getenv("LLM_MODEL"),
 		System: `You are a smart multilang assistant, responding to the user only in Ukrainian language.
 				Answer clearly and to the point, without adding any additional information.
-				If the context is empty or doesn't contain any information to answer, say, 'No information on this question.'
+				If the context is empty or doesn't contain any information to answer, say, 'Немає інформації по даному питанню.'
 				Don't add introductions like 'Of course!' or 'Here's the answer:'`,
 		Prompt: prompt,
 	})
