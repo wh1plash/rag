@@ -19,6 +19,7 @@ type DBStorer interface {
 	SaveChunk(context.Context, types.Chunk) error
 	DeleteChunksByDocID(context.Context, uuid.UUID) error
 	Search(context.Context, []float32, int) ([]types.Chunk, error)
+	GetNeighbours(context.Context, uuid.UUID) ([]types.Chunk, error)
 }
 
 type PostgresStore struct {
@@ -126,19 +127,53 @@ func toPgVector(v []float32) string {
 	return strings.Join(parts, ",")
 }
 
+func (p *PostgresStore) GetNeighbours(ctx context.Context, chunkIndex uuid.UUID) ([]types.Chunk, error) {
+	query := `
+			SELECT id, doc_id, index, coherence_prev, coherence_next, content
+			FROM chunks
+			WHERE doc_id = (
+				SELECT doc_id FROM chunks WHERE id = $1
+			)
+			AND (
+				index = (SELECT coherence_prev FROM chunks WHERE id = $1)
+				OR
+				index = (SELECT coherence_next FROM chunks WHERE id = $1)
+			)
+			order by index
+	`
+	rows, err := p.pool.Query(ctx, query, chunkIndex)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+
+	var chunks []types.Chunk
+	for rows.Next() {
+		var chunk types.Chunk
+		err := rows.Scan(
+			&chunk.ID,
+			&chunk.DocID,
+			&chunk.Index,
+			&chunk.CohPrev,
+			&chunk.CohNext,
+			&chunk.Content)
+		if err != nil {
+			return nil, err
+		}
+		chunks = append(chunks, chunk)
+	}
+	return chunks, nil
+}
+
 func (p *PostgresStore) Search(ctx context.Context, queryVec []float32, limit int) ([]types.Chunk, error) {
 	if len(queryVec) == 0 {
 		return nil, fmt.Errorf("пустой вектор запроса")
 	}
 
-	// Конвертируем float32 в []float32 для pgvector
-	// embedding := make([]float32, len(queryVec))
-	// copy(embedding, queryVec)
-
 	vector := pgvector.NewVector(queryVec)
 
 	query := `
-		SELECT pc.id, pc.doc_id, pc.index, pc.content, pc.embedding,
+		SELECT pc.id, pc.doc_id, pc.index, pc.coherence_prev, pc.coherence_next, pc.content,
 		       1-(pc.embedding <=> $1) as distance
 		FROM chunks pc
 		JOIN documents doc ON pc.doc_id = doc.id
@@ -155,13 +190,13 @@ func (p *PostgresStore) Search(ctx context.Context, queryVec []float32, limit in
 	var chunks []types.Chunk
 	for rows.Next() {
 		var chunk types.Chunk
-		var embeddingVector pgvector.Vector
 		err := rows.Scan(
 			&chunk.ID,
 			&chunk.DocID,
 			&chunk.Index,
+			&chunk.CohPrev,
+			&chunk.CohNext,
 			&chunk.Content,
-			&embeddingVector,
 			&chunk.Distance)
 		if err != nil {
 			return nil, err
@@ -172,7 +207,7 @@ func (p *PostgresStore) Search(ctx context.Context, queryVec []float32, limit in
 		// // Сохраняем расстояние для сортировки и отображения
 		// chunk.Distance = distance
 
-		log.Printf("[SEARCH] Найден чанк: %s, Index: %d, (расстояние: %.4f)\n", chunk.DocID, chunk.Index, chunk.Distance)
+		log.Printf("[SEARCH] Найден чанк: %s, Документ: %s, Index: %d, (расстояние: %.4f)\n", chunk.ID, chunk.DocID, chunk.Index, chunk.Distance)
 		chunks = append(chunks, chunk)
 	}
 	return chunks, nil
@@ -201,7 +236,8 @@ func (p *PostgresStore) createRagTables(ctx context.Context) error {
         index INT NOT NULL,
         type TEXT CHECK (type IN ('text','json')),
         section TEXT,
-		coherence INT default 0,
+		coherence_prev INT,
+		coherence_next INT,
         content TEXT NOT NULL,
         embedding vector(1024)
     );

@@ -8,6 +8,8 @@ import (
 	"net/http"
 	"os"
 	"time"
+
+	"github.com/pkoukk/tiktoken-go"
 )
 
 type GenerateRequest struct {
@@ -36,15 +38,23 @@ Question:
 Answer:`, context, question)
 
 	fmt.Println(prompt)
-	fmt.Println("-----------")
+
 	reqBody, _ := json.Marshal(GenerateRequest{
 		Model: os.Getenv("LLM_MODEL"),
-		System: `You are a smart assistant, responding to the user in the language they asked the question in. \n
-				Answer clearly and to the point, without adding any additional information. \n
-				If the context is empty or doesn't contain any information to answer, say, 'No information on this question.' \n
+		System: `You are a smart multilang assistant, responding to the user only in Ukrainian language.
+				Answer clearly and to the point, without adding any additional information.
+				If the context is empty or doesn't contain any information to answer, say, 'No information on this question.'
 				Don't add introductions like 'Of course!' or 'Here's the answer:'`,
 		Prompt: prompt,
 	})
+
+	count, _ := CountTokensLlama(reqBody)
+	fmt.Println("Size of Prompt with system in tokens:", count)
+
+	fmt.Println("Size of Prompt with system in symbols:", len(reqBody))
+	fmt.Println("-----------")
+
+	//return "ok", nil
 
 	resp, err := http.Post(os.Getenv("LLM_URL"),
 		"application/json",
@@ -76,4 +86,13 @@ Answer:`, context, question)
 	}
 	return output, nil
 
+}
+
+func CountTokensLlama(data []byte) (int, error) {
+	enc, err := tiktoken.EncodingForModel("gpt-3.5-turbo") // Можно заменить на любую совместимую модель
+	if err != nil {
+		return 0, err
+	}
+	tokens := enc.Encode(string(data), nil, nil)
+	return len(tokens), nil
 }

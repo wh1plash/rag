@@ -1,6 +1,7 @@
 package types
 
 import (
+	"database/sql"
 	"time"
 
 	"github.com/google/uuid"
@@ -12,6 +13,8 @@ type Chunk struct {
 	Index     int
 	Type      string
 	Section   string
+	CohPrev   sql.NullInt64
+	CohNext   sql.NullInt64
 	Content   string
 	Embedding []float32
 	Distance  float64
