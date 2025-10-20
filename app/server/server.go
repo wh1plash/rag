@@ -47,6 +47,7 @@ func (s *Server) Run() {
 		app            = fiber.New(config)
 		checkHandler   = api.NewCheckHandler
 		requestHandler = api.NewRequestHandler(pool)
+		fileHandler    = api.NewRequestHandler(pool)
 		// userHandler  = api.NewUserHandler(db)
 		// authHandler  = api.NewAuthHandler(db)
 		check = app.Group("/check")
@@ -55,6 +56,7 @@ func (s *Server) Run() {
 
 	check.Get("/healthy", checkHandler().HandleHealthy)
 	apiv1.Post("/request", requestHandler.HandleRequest)
+	apiv1.Post("/upload", fileHandler.HandlePDF)
 
 	err = app.Listen(s.listenAddr)
 	if err != nil {

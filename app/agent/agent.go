@@ -30,12 +30,14 @@ func GenerateAnswer(context string, question string) (string, error) {
 
 	fmt.Println("Startin promt to LLM...")
 
-	prompt := fmt.Sprintf(`Answer to the questions based on the given context. If there is no information in providet context or context is empty then answer 'No information for this request'. Nothing else.
+	prompt := fmt.Sprintf(`You are an intelligent assistant answering users' questions. Answer to the questions based on the given context. Below is some context containing pieces of information that may be helpful in answering your question.
 Context:
 %s
-Question: 
+Question:
 %s
-Answer:`, context, question)
+Your task is to give a precise and concise answer, using only contextual information.
+If you don't have enough information, don't make it up; just say, "Немає інформації по даному питанню."
+`, context, question)
 
 	fmt.Println(prompt)
 

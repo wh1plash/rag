@@ -86,6 +86,20 @@ func (h *RequestHandler) HandleRequest(c *fiber.Ctx) error {
 	return c.JSON(output)
 }
 
+func (h *RequestHandler) HandlePDF(c *fiber.Ctx) error {
+	file, err := c.FormFile("file")
+	if err != nil {
+		return ErrBadRequest()
+	}
+
+	if err := c.SaveFile(file, os.Getenv("LOADER_SOURCE_DIR")+"/"+file.Filename); err != nil {
+		fmt.Println(err)
+		return err
+	}
+
+	return c.JSON("ok")
+}
+
 func (h *RequestHandler) extendChunks(chunks []types.Chunk) ([]types.Chunk, error) {
 	fmt.Println("Start begin extend")
 
@@ -115,7 +129,7 @@ func (h *RequestHandler) extendChunks(chunks []types.Chunk) ([]types.Chunk, erro
 
 func (h *RequestHandler) filterChunks(chunks []types.Chunk) ([]types.Chunk, error) {
 	result := make([]types.Chunk, 0, len(chunks))
-	minDistance := 0.6 // Минимальный допустимый distance для релевантного результата
+	minDistance := 0.55 // Минимальный допустимый distance для релевантного результата
 	for _, chunk := range chunks {
 		if chunk.Distance > minDistance {
 			result = append(result, chunk)
