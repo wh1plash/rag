@@ -5,6 +5,7 @@ import (
 	"context"
 	"crypto/md5"
 	"fmt"
+	"io"
 	"log"
 	"os"
 	"path/filepath"
@@ -335,13 +336,31 @@ func (l *PDFLoader) MoveToArchive(filePath string, fileState int) {
 		counter++
 	}
 
-	err := os.Rename(filePath, destPath)
-	if err != nil {
-		fmt.Printf("error moving file to archive: %s\n", err)
-		return
-	}
-	fmt.Printf("File moved to archive: %s\n", destPath)
+	// err := os.Rename(filePath, destPath)
+	// if err != nil {
+	// 	fmt.Printf("error moving file to archive: %s\n", err)
+	// 	return
+	// }
 
+	in, err := os.Open(filePath)
+	if err != nil {
+		fmt.Printf("error open file: %s\n", err)
+	}
+	defer in.Close()
+
+	out, err := os.Create(destPath)
+	if err != nil {
+		fmt.Printf("error create file: %s\n", err)
+	}
+	defer out.Close()
+
+	if _, err := io.Copy(out, in); err != nil {
+		fmt.Printf("error moving file to archive: %s\n", err)
+	}
+
+	fmt.Printf("File moved to archive: %s\n", destPath)
+	in.Close()
+	os.Remove(filePath)
 }
 
 func createDirectories(sourceDir, archiveDir, badDir string) error {

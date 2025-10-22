@@ -58,6 +58,8 @@ func (s *Server) Run() {
 	apiv1.Post("/request", requestHandler.HandleRequest)
 	apiv1.Post("/upload", fileHandler.HandlePDF)
 
+	app.Static("/", "./public")
+
 	err = app.Listen(s.listenAddr)
 	if err != nil {
 		s.logger.Error("error to start server", "error", err.Error())

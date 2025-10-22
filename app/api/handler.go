@@ -11,6 +11,7 @@ import (
 	"sort"
 	"strconv"
 	"strings"
+	"time"
 
 	"rag/store"
 
@@ -60,6 +61,11 @@ func (h *RequestHandler) HandleRequest(c *fiber.Ctx) error {
 		return err
 	}
 
+	confidence := 1.0
+	if len(qualityChunks) > 0 {
+		confidence = qualityChunks[0].Distance
+	}
+
 	fmt.Println("Count chunks before extend", len(qualityChunks))
 	// 4.1 Обогащаем выборку когерентными чанками
 	cohChunks, err := h.extendChunks(qualityChunks)
@@ -70,11 +76,17 @@ func (h *RequestHandler) HandleRequest(c *fiber.Ctx) error {
 	fmt.Println("Count chunks after extend", len(cohChunks))
 
 	// 5. Формируем контекст из найденных чанков
-	context := h.buildContext(cohChunks)
+	context, contextChunks := h.buildContext(cohChunks)
 
+	sources, err := h.formatSources(contextChunks)
+	if err != nil {
+		fmt.Println("Handle the error:", err)
+		return err
+	}
 	fmt.Println("-----------------")
 
 	//fmt.Println("after builder: \n", context)
+
 	if context == "" {
 		context = "empty"
 	}
@@ -83,7 +95,33 @@ func (h *RequestHandler) HandleRequest(c *fiber.Ctx) error {
 	if err != nil {
 		return err
 	}
-	return c.JSON(output)
+
+	//return c.JSON(output)
+	resp := &types.SearchResponse{
+		Answer:     output,
+		Sources:    sources,
+		Confidence: confidence,
+		Timestamp:  time.Now(),
+	}
+	return c.JSON(resp)
+}
+
+func (h *RequestHandler) formatSources(chunks []types.Chunk) ([]types.Source, error) {
+	sources := make([]types.Source, len(chunks))
+	for i, chunk := range chunks {
+		doc, err := h.contextStore.GetDocumentByID(context.Background(), chunk.DocID)
+		if err != nil {
+			return nil, err
+		}
+
+		sources[i] = types.Source{
+			DocID:     chunk.DocID.String(),
+			Title:     doc.Title,
+			ChunkText: chunk.Content,
+			Index:     chunk.Index,
+		}
+	}
+	return sources, nil
 }
 
 func (h *RequestHandler) HandlePDF(c *fiber.Ctx) error {
@@ -91,11 +129,12 @@ func (h *RequestHandler) HandlePDF(c *fiber.Ctx) error {
 	if err != nil {
 		return ErrBadRequest()
 	}
-
-	if err := c.SaveFile(file, os.Getenv("LOADER_SOURCE_DIR")+"/"+file.Filename); err != nil {
+	path := os.Getenv("LOADER_SOURCE_DIR") + "/" + file.Filename
+	if err := c.SaveFile(file, path); err != nil {
 		fmt.Println(err)
 		return err
 	}
+	fmt.Printf("[UPLOAD] Fife successfuly saved to: %s\n", path)
 
 	return c.JSON("ok")
 }
@@ -140,7 +179,7 @@ func (h *RequestHandler) filterChunks(chunks []types.Chunk) ([]types.Chunk, erro
 	return result, nil
 }
 
-func (h *RequestHandler) buildContext(chunks []types.Chunk) string {
+func (h *RequestHandler) buildContext(chunks []types.Chunk) (string, []types.Chunk) {
 	// var context string
 	maxContextLength := 20000 // Максимальный размер контекста в символах
 	// currentLength := len(context)
@@ -167,6 +206,7 @@ func (h *RequestHandler) buildContext(chunks []types.Chunk) string {
 	}
 
 	//originalCount := len(chunks)
+	var contextChunks []types.Chunk
 	var sb strings.Builder
 	for docID, docChunks := range grouped {
 		sb.WriteString(fmt.Sprintf("Документ %s:\n", docID))
@@ -178,17 +218,19 @@ func (h *RequestHandler) buildContext(chunks []types.Chunk) string {
 			if ch.Section != "" {
 				sb.WriteString(fmt.Sprintf("## %s\n", ch.Section))
 			}
+			// sb.WriteString(fmt.Sprintf("Векторное сходство: %f\n", ch.Distance))
 			sb.WriteString(ch.Content)
 			if sb.Len() > maxContextLength {
 				fmt.Printf("[CONTEXT] Достигнут лимит контекста (%d symbols), используем %d чанков\n", maxContextLength, i)
 				break
 			}
+			contextChunks = append(contextChunks, ch)
 		}
+
 		sb.WriteString("\n")
 	}
 	fmt.Printf("[CONTEXT] Сформирован контекст: %d символов из %d чанков\n", len(sb.String()), len(chunks))
-
-	return sb.String()
+	return sb.String(), contextChunks
 }
 
 func (h *RequestHandler) removeChunkOverlaps(chunks []types.Chunk, overlap int) []types.Chunk {

@@ -3,6 +3,7 @@ package types
 import (
 	"fmt"
 	"net/http"
+	"time"
 
 	"github.com/go-playground/validator/v10"
 )
@@ -39,4 +40,17 @@ type ValidationError struct {
 
 func (e ValidationError) Error() string {
 	return "validation failed"
+}
+
+type SearchResponse struct {
+	Answer     string    `json:"answer"`
+	Sources    []Source  `json:"sources"`
+	Confidence float64   `json:"confidence"`
+	Timestamp  time.Time `json:"timestamp"`
+}
+type Source struct {
+	DocID     string `json:"doc_id"`
+	Title     string `json:"title"`
+	ChunkText string `json:"chunk_text"`
+	Index     int    `json:"index"`
 }

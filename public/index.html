@@ -1,0 +1,594 @@
+<!DOCTYPE html>
+<html lang="ru">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>AI Knowledge Base Assistant</title>
+    <style>
+        body {
+            font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+            max-width: 900px;
+            margin: 0 auto;
+            padding: 20px;
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            min-height: 100vh;
+            line-height: 1.6;
+        }
+        
+        .container {
+            background: white;
+            padding: 40px;
+            border-radius: 15px;
+            box-shadow: 0 10px 30px rgba(0,0,0,0.2);
+            backdrop-filter: blur(10px);
+        }
+        
+        h1 {
+            color: #333;
+            text-align: center;
+            margin-bottom: 40px;
+            font-size: 2.5em;
+            font-weight: 300;
+            text-shadow: 2px 2px 4px rgba(0,0,0,0.1);
+        }
+        
+        .input-group {
+            margin-bottom: 25px;
+        }
+        
+        label {
+            display: block;
+            margin-bottom: 8px;
+            font-weight: 600;
+            color: #555;
+            font-size: 1.1em;
+        }
+        
+        textarea {
+            width: 100%;
+            height: 120px;
+            padding: 15px;
+            border: 2px solid #e1e5e9;
+            border-radius: 10px;
+            resize: vertical;
+            font-family: inherit;
+            font-size: 16px;
+            transition: border-color 0.3s ease, box-shadow 0.3s ease;
+            box-sizing: border-box;
+        }
+        
+        textarea:focus {
+            outline: none;
+            border-color: #007bff;
+            box-shadow: 0 0 0 3px rgba(0, 123, 255, 0.1);
+        }
+        
+        button {
+            background: linear-gradient(135deg, #007bff 0%, #0056b3 100%);
+            color: white;
+            padding: 15px 30px;
+            border: none;
+            border-radius: 10px;
+            cursor: pointer;
+            font-size: 16px;
+            font-weight: 600;
+            width: 100%;
+            transition: all 0.3s ease;
+            text-transform: uppercase;
+            letter-spacing: 1px;
+        }
+        
+        button:hover {
+            transform: translateY(-2px);
+            box-shadow: 0 5px 15px rgba(0, 123, 255, 0.3);
+        }
+        
+        button:disabled {
+            background: #ccc;
+            cursor: not-allowed;
+            transform: none;
+            box-shadow: none;
+        }
+        
+        .response {
+            margin-top: 40px;
+            padding: 30px;
+            border: 2px solid #e1e5e9;
+            border-radius: 15px;
+            background: #fafbfc;
+            display: none;
+            box-shadow: 0 5px 15px rgba(0,0,0,0.1);
+        }
+        
+        .response h3 {
+            margin-top: 0;
+            color: #333;
+            font-size: 1.5em;
+            margin-bottom: 20px;
+            border-bottom: 2px solid #007bff;
+            padding-bottom: 10px;
+        }
+        
+        .answer-content {
+            background: white;
+            padding: 20px;
+            border-radius: 10px;
+            margin-bottom: 20px;
+            border-left: 4px solid #28a745;
+            font-size: 16px;
+            line-height: 1.8;
+            white-space: pre-wrap;
+            word-wrap: break-word;
+        }
+        
+        .answer-content p {
+            margin: 0 0 15px 0;
+        }
+        
+        .answer-content ul, 
+        .answer-content ol {
+            margin: 15px 0;
+            padding-left: 25px;
+        }
+        
+        .answer-content li {
+            margin: 8px 0;
+            line-height: 1.6;
+        }
+        
+        .answer-content strong {
+            color: #333;
+            font-weight: 600;
+        }
+        
+        .answer-content em {
+            color: #666;
+            font-style: italic;
+        }
+        
+        .answer-content code {
+            background: #f1f3f4;
+            padding: 2px 6px;
+            border-radius: 4px;
+            font-family: 'Courier New', monospace;
+            font-size: 14px;
+            color: #e83e8c;
+        }
+        
+        .answer-content pre {
+            background: #f8f9fa;
+            padding: 15px;
+            border-radius: 8px;
+            overflow-x: auto;
+            border-left: 4px solid #007bff;
+            margin: 15px 0;
+        }
+        
+        .confidence {
+            color: #666;
+            font-size: 14px;
+            margin-bottom: 25px;
+            padding: 10px 15px;
+            background: #e9ecef;
+            border-radius: 8px;
+            display: inline-block;
+            font-weight: 500;
+        }
+        
+        .sources {
+            margin-top: 30px;
+        }
+        
+        .sources h4 {
+            color: #333;
+            font-size: 1.3em;
+            margin-bottom: 20px;
+            border-bottom: 1px solid #dee2e6;
+            padding-bottom: 10px;
+        }
+        
+        .source {
+            background: white;
+            padding: 20px;
+            margin: 15px 0;
+            border-radius: 10px;
+            border-left: 4px solid #007bff;
+            box-shadow: 0 2px 8px rgba(0,0,0,0.1);
+            transition: transform 0.2s ease, box-shadow 0.2s ease;
+        }
+        
+        .source:hover {
+            transform: translateY(-2px);
+            box-shadow: 0 4px 15px rgba(0,0,0,0.15);
+        }
+        
+        .source h4 {
+            margin: 0 0 12px 0;
+            color: #333;
+            font-size: 1.1em;
+            font-weight: 600;
+        }
+        
+        .source-text {
+            color: #666;
+            font-size: 14px;
+            line-height: 1.6;
+            background: #f8f9fa;
+            padding: 12px;
+            border-radius: 6px;
+            border: 1px solid #e9ecef;
+        }
+        
+        .loading {
+            text-align: center;
+            color: #666;
+            font-style: italic;
+            font-size: 18px;
+            padding: 30px;
+            background: #f8f9fa;
+            border-radius: 10px;
+            margin-top: 20px;
+        }
+        
+        .loading::before {
+            content: "🔍 ";
+            animation: pulse 1.5s infinite;
+        }
+        
+        @keyframes pulse {
+            0%, 100% { opacity: 1; }
+            50% { opacity: 0.5; }
+        }
+        
+        .error {
+            color: #dc3545;
+            background-color: #f8d7da;
+            padding: 15px 20px;
+            border-radius: 10px;
+            margin-top: 20px;
+            border: 1px solid #f5c6cb;
+            font-weight: 500;
+        }
+        
+        .error::before {
+            content: "⚠️ ";
+            margin-right: 8px;
+        }
+        
+        .instruction {
+            background: #e3f2fd;
+            border: 1px solid #bbdefb;
+            border-radius: 8px;
+            padding: 15px;
+            margin-bottom: 25px;
+            color: #1565c0;
+            font-size: 14px;
+        }
+        
+        .instruction::before {
+            content: "💡 ";
+            margin-right: 8px;
+        }
+
+        .translation-info {
+            background: #f8f9fa;
+            border: 1px solid #dee2e6;
+            border-radius: 8px;
+            padding: 15px;
+            margin: 20px 0;
+            font-size: 14px;
+            color: #6c757d;
+        }
+
+        .translation-info.visible {
+            display: block;
+        }
+
+        .translation-info.hidden {
+            display: none;
+        }
+
+        .translation-row {
+            margin-bottom: 10px;
+        }
+
+        .translation-row strong {
+            color: #495057;
+        }
+
+        .translation-toggle {
+            background: #6c757d;
+            color: white;
+            border: none;
+            padding: 5px 10px;
+            border-radius: 5px;
+            font-size: 12px;
+            cursor: pointer;
+            margin-top: 10px;
+            width: auto;
+            display: inline-block;
+        }
+
+        .translation-toggle:hover {
+            background: #545b62;
+        }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <h1>🤖 AI Knowledge Base Assistant</h1>
+        
+        <div class="instruction">
+            Задайте любой вопрос о содержимом базы знаний. Для отправки используйте кнопку или нажмите Ctrl+Enter.
+        </div>
+        
+        <div class="input-group">
+            <label for="query">Ваш вопрос:</label>
+            <textarea id="query" placeholder="Например: Как установить веб-службу? Какие есть API методы? Объясни процесс разработки..."></textarea>
+        </div>
+        
+        <button id="askBtn" onclick="askQuestion()">Отправить вопрос</button>
+        
+        <div id="response" class="response">
+            <h3>💡 Ответ системы</h3>
+            <div id="answer" class="answer-content"></div>
+            <div id="confidence" class="confidence"></div>
+            
+            <!-- Секция с информацией о переводах -->
+            <div id="translationInfo" class="translation-info hidden">
+                <h4 style="margin-top: 0;">🌐 Информация о переводе</h4>
+                <div id="translationDetails"></div>
+                <button class="translation-toggle" onclick="toggleOriginalTexts()">
+                    <span id="toggleText">Показать оригинальные тексты</span>
+                </button>
+                <div id="originalTexts" style="display: none; margin-top: 15px;">
+                    <div id="originalQuery" class="translation-row"></div>
+                    <div id="originalAnswer" class="translation-row"></div>
+                </div>
+            </div>
+            
+            <div id="sources" class="sources">
+                <h4>📚 Использованные источники</h4>
+                <div id="sourcesList"></div>
+            </div>
+        </div>
+        
+        <div id="loading" class="loading" style="display: none;">
+            Ищу ответ в базе знаний...
+        </div>
+        
+        <div id="error" class="error" style="display: none;"></div>
+    </div>
+
+    <script>
+        async function askQuestion() {
+            const query = document.getElementById('query').value.trim();
+            if (!query) {
+                alert('Пожалуйста, введите вопрос');
+                return;
+            }
+
+            const askBtn = document.getElementById('askBtn');
+            const loading = document.getElementById('loading');
+            const response = document.getElementById('response');
+            const error = document.getElementById('error');
+
+            // Показываем загрузку
+            askBtn.disabled = true;
+            loading.style.display = 'block';
+            response.style.display = 'none';
+            error.style.display = 'none';
+
+            try {
+                const response = await fetch('/api/v1/request', {
+                    method: 'POST',
+                    headers: {
+                        'Content-Type': 'application/json',
+                    },
+                    body: JSON.stringify({ prompt: query })
+                });
+
+                if (!response.ok) {
+                    throw new Error(`HTTP error! status: ${response.status}`);
+                }
+
+                const data = await response.json();
+                displayResponse(data);
+            } catch (err) {
+                console.error('Error:', err);
+                error.textContent = 'Ошибка при получении ответа: ' + err.message;
+                error.style.display = 'block';
+            } finally {
+                askBtn.disabled = false;
+                loading.style.display = 'none';
+            }
+        }
+
+        function formatText(text) {
+            // Базовое markdown форматирование
+            return text
+                // Заголовки
+                .replace(/^### (.*$)/gim, '<h3>$1</h3>')
+                .replace(/^## (.*$)/gim, '<h2>$1</h2>')
+                .replace(/^# (.*$)/gim, '<h1>$1</h1>')
+                
+                // Жирный текст
+                .replace(/\*\*(.*?)\*\*/g, '<strong>$1</strong>')
+                .replace(/__(.*?)__/g, '<strong>$1</strong>')
+                
+                // Курсив
+                .replace(/\*(.*?)\*/g, '<em>$1</em>')
+                .replace(/_(.*?)_/g, '<em>$1</em>')
+                
+                // Inline код
+                .replace(/`([^`]+)`/g, '<code>$1</code>')
+                
+                // Блоки кода
+                .replace(/```([\s\S]*?)```/g, '<pre><code>$1</code></pre>')
+                
+                // Списки (простая реализация)
+                .replace(/^[\s]*[-*+]\s+(.*)$/gim, '<li>$1</li>')
+                .replace(/(<li>.*<\/li>)/gs, '<ul>$1</ul>')
+                .replace(/<\/ul>\s*<ul>/g, '')
+                
+                // Пронумерованные списки
+                .replace(/^[\s]*\d+\.\s+(.*)$/gim, '<li>$1</li>')
+                .replace(/(<li>.*<\/li>)/gs, function(match) {
+                    if (!match.includes('<ul>')) {
+                        return '<ol>' + match + '</ol>';
+                    }
+                    return match;
+                })
+                .replace(/<\/ol>\s*<ol>/g, '')
+                
+                // Параграфы (разделяем по двойным переносам)
+                .split('\n\n')
+                .map(paragraph => {
+                    paragraph = paragraph.trim();
+                    if (paragraph && !paragraph.startsWith('<')) {
+                        return '<p>' + paragraph.replace(/\n/g, '<br>') + '</p>';
+                    }
+                    return paragraph;
+                })
+                .join('\n');
+        }
+
+        function displayResponse(data) {
+            const response = document.getElementById('response');
+            const answer = document.getElementById('answer');
+            const confidence = document.getElementById('confidence');
+            const sourcesList = document.getElementById('sourcesList');
+
+            // Форматируем ответ с поддержкой markdown
+            const formattedAnswer = formatText(data.answer);
+            answer.innerHTML = formattedAnswer;
+            
+            // Красивое отображение уверенности
+            const confidencePercent = Math.round(data.confidence * 100);
+            const confidenceColor = confidencePercent >= 80 ? '#28a745' : 
+                                  confidencePercent >= 60 ? '#ffc107' : '#dc3545';
+            confidence.innerHTML = `
+                <span style="color: ${confidenceColor}; font-weight: 600;">
+                    🎯 Уверенность: ${confidencePercent}%
+                </span>
+            `;
+
+            // Отображаем информацию о переводе
+            displayTranslationInfo(data);
+
+            // Отображаем источники с улучшенным форматированием
+            sourcesList.innerHTML = '';
+            if (data.sources && data.sources.length > 0) {
+                data.sources.forEach((source, index) => {
+                    const sourceDiv = document.createElement('div');
+                    sourceDiv.className = 'source';
+                    
+                    // Обрезаем текст и добавляем многоточие красиво
+                    let truncatedText = source.chunk_text;
+                    if (truncatedText.length > 300) {
+                        truncatedText = truncatedText.substring(0, 300);
+                        // Обрезаем по последнему полному слову
+                        const lastSpace = truncatedText.lastIndexOf(' ');
+                        if (lastSpace > 250) {
+                            truncatedText = truncatedText.substring(0, lastSpace);
+                        }
+                        truncatedText += '...';
+                    }
+                    
+                    sourceDiv.innerHTML = `
+                        <h4>📄 ${source.title || 'Документ без названия'}</h4>
+                        <div class="source-text">${truncatedText}</div>
+                        <small style="color: #999; font-size: 12px; margin-top: 8px; display: block;">
+                            ID документа: ${source.doc_id}
+                        </small>
+                    `;
+                    sourcesList.appendChild(sourceDiv);
+                });
+            } else {
+                sourcesList.innerHTML = `
+                    <div style="text-align: center; color: #666; padding: 20px; font-style: italic;">
+                        📭 Источники не найдены
+                    </div>
+                `;
+            }
+
+            response.style.display = 'block';
+            
+            // Плавная прокрутка к ответу
+            setTimeout(() => {
+                response.scrollIntoView({ behavior: 'smooth', block: 'start' });
+            }, 100);
+        }
+
+        // Функция для переключения отображения оригинальных текстов
+        function toggleOriginalTexts() {
+            const originalTexts = document.getElementById('originalTexts');
+            const toggleText = document.getElementById('toggleText');
+            
+            if (originalTexts.style.display === 'none') {
+                originalTexts.style.display = 'block';
+                toggleText.textContent = 'Скрыть оригинальные тексты';
+            } else {
+                originalTexts.style.display = 'none';
+                toggleText.textContent = 'Показать оригинальные тексты';
+            }
+        }
+
+        // Функция для отображения информации о переводе
+        function displayTranslationInfo(data) {
+            const translationInfo = document.getElementById('translationInfo');
+            const translationDetails = document.getElementById('translationDetails');
+            const originalQuery = document.getElementById('originalQuery');
+            const originalAnswer = document.getElementById('originalAnswer');
+
+            if (data.translation_used) {
+                translationInfo.className = 'translation-info visible';
+                
+                let details = '';
+                if (data.query_language && data.query_language !== 'russian') {
+                    details += `<div class="translation-row"><strong>🔄 Язык запроса:</strong> ${getLanguageName(data.query_language)}</div>`;
+                }
+                if (data.answer_language) {
+                    details += `<div class="translation-row"><strong>🎯 Язык ответа:</strong> ${getLanguageName(data.answer_language)}</div>`;
+                }
+                
+                translationDetails.innerHTML = details;
+
+                // Заполняем оригинальные тексты
+                if (data.original_query && data.translated_query && data.original_query !== data.translated_query) {
+                    originalQuery.innerHTML = `<strong>📝 Оригинальный запрос:</strong><br><em>"${data.original_query}"</em>`;
+                }
+                if (data.original_answer && data.translated_answer && data.original_answer !== data.translated_answer) {
+                    originalAnswer.innerHTML = `<strong>💬 Оригинальный ответ:</strong><br><em>"${data.original_answer}"</em>`;
+                }
+            } else {
+                translationInfo.className = 'translation-info hidden';
+            }
+        }
+
+        // Функция для получения названия языка
+        function getLanguageName(langCode) {
+            const languages = {
+                'russian': 'Русский',
+                'ukrainian': 'Украинский',
+                'english': 'Английский',
+                'spanish': 'Испанский',
+                'french': 'Французский',
+                'german': 'Немецкий',
+                'italian': 'Итальянский',
+                'portuguese': 'Португальский',
+                'polish': 'Польский',
+                'czech': 'Чешский'
+            };
+            return languages[langCode] || langCode.charAt(0).toUpperCase() + langCode.slice(1);
+        }
+
+        // Поддержка Enter для отправки
+        document.getElementById('query').addEventListener('keypress', function(e) {
+            if (e.key === 'Enter' && e.ctrlKey) {
+                askQuestion();
+            }
+        });
+    </script>
+</body>
+</html> 

@@ -2,11 +2,11 @@ version: '3.8'
 services:
   postgres:
     image: pgvector/pgvector:pg15
-    container_name: confluence-postgres
+    container_name: rag-postgres
     environment:
-      POSTGRES_DB: confluence
-      POSTGRES_USER: postgres
-      POSTGRES_PASSWORD: postgres
+      POSTGRES_DB: ${PG_DB_NAME}
+      POSTGRES_USER: ${PG_USER}
+      POSTGRES_PASSWORD: ${PG_PASS}
     volumes:
       - postgres_data:/var/lib/postgresql/data
     ports:
@@ -25,6 +25,33 @@ services:
     volumes:
       - ollama_data:/root/.ollama
     restart: unless-stopped
+
+  loader:
+    build:
+      context: .
+      dockerfile: Dockerfile_loader
+    volumes:
+      - ./source:/app/${LOADER_SOURCE_DIR}
+    depends_on:
+      postgres:
+        condition: service_healthy
+    restart: unless-stopped
+
+  server:
+    build:
+      context: .
+      dockerfile: Dockerfile_server
+    ports:
+      - "3000:3000"
+    volumes:
+      - ./source:/app/${LOADER_SOURCE_DIR}
+      - ./public:/app/public
+    depends_on:
+      postgres:
+        condition: service_healthy
+    restart: unless-stopped
+
+
 
 volumes:
   postgres_data:
