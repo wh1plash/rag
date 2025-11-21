@@ -16,38 +16,34 @@ type GenerateRequest struct {
 	Model  string `json:"model"`
 	System string `json:"system"`
 	Prompt string `json:"prompt"`
+	Stream bool   `json:"stream"`
 }
 
 type GenerateResponse struct {
 	Response string `json:"response"`
 }
 
-func GenerateAnswer(context string, question string) (string, error) {
+func GenerateAnswer(context string, question, sysPrompt string) (string, error) {
 	start := time.Now()
 	defer func() {
 		fmt.Printf("LLM answer tooks %v\n", time.Since(start))
 	}()
 
 	fmt.Println("Startin promt to LLM...")
+	fmt.Println(sysPrompt)
 
-	prompt := fmt.Sprintf(`You are an intelligent assistant answering users' questions. Answer to the questions based on the given context. Below is some context containing pieces of information that may be helpful in answering your question.
-Context:
+	prompt := fmt.Sprintf(`Контекст з декількох документів:
+Контекст:
 %s
-Question:
-%s
-Your task is to give a precise and concise answer, using only contextual information.
-If you don't have enough information, don't make it up; just say, "Немає інформації по даному питанню."
-`, context, question)
-
-	fmt.Println(prompt)
+Запит:
+%s 
+Відповідь:`, context, question)
 
 	reqBody, _ := json.Marshal(GenerateRequest{
-		Model: os.Getenv("LLM_MODEL"),
-		System: `You are a smart multilang assistant, responding to the user only in Ukrainian language.
-				Answer clearly and to the point, without adding any additional information.
-				If the context is empty or doesn't contain any information to answer, say, 'Немає інформації по даному питанню.'
-				Don't add introductions like 'Of course!' or 'Here's the answer:'`,
+		Model:  os.Getenv("LLM_MODEL"),
+		System: sysPrompt,
 		Prompt: prompt,
+		Stream: false,
 	})
 
 	count, _ := CountTokensLlama(reqBody)

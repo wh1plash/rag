@@ -48,6 +48,7 @@ func (s *Server) Run() {
 		checkHandler   = api.NewCheckHandler
 		requestHandler = api.NewRequestHandler(pool)
 		fileHandler    = api.NewRequestHandler(pool)
+		configHandler  = api.NewConfigHandler(pool)
 		// userHandler  = api.NewUserHandler(db)
 		// authHandler  = api.NewAuthHandler(db)
 		check = app.Group("/check")
@@ -57,6 +58,7 @@ func (s *Server) Run() {
 	check.Get("/healthy", checkHandler().HandleHealthy)
 	apiv1.Post("/request", requestHandler.HandleRequest)
 	apiv1.Post("/upload", fileHandler.HandlePDF)
+	apiv1.Post("/config", configHandler.HandleSetConfig)
 
 	app.Static("/", "./public")
 

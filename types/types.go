@@ -39,3 +39,11 @@ type Config struct {
 	ChunkSize      int
 	ChunkOverlap   int
 }
+
+type LLMConfig struct {
+	EmbeddingUrl   string
+	EmbeddingModel string
+	LLMUrl         string
+	LLMModel       string
+	PromptStr      string
+}

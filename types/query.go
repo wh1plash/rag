@@ -8,11 +8,41 @@ import (
 	"github.com/go-playground/validator/v10"
 )
 
+type Validater interface {
+	Validate() map[string]string
+}
+
 type QueryParams struct {
 	Prompt string `json:"prompt" validate:"required"`
 }
 
-func Validate(params *QueryParams) map[string]string {
+type ConfigParams struct {
+	EmbeddingUrl   string `db:"embedding_url" json:"embedding_url,omitempty"`
+	EmbeddingModel string `db:"embedding_model" json:"embedding_model,omitempty"`
+	LLMUrl         string `db:"llm_ulr" json:"llm_ulr,omitempty"`
+	LLMModel       string `db:"llm_model" json:"llm_model,omitempty"`
+	PromptStr      string `db:"prompt_str" json:"prompt_str,omitempty"`
+}
+
+func Validate(v Validater) map[string]string {
+	return v.Validate()
+}
+
+func (params *ConfigParams) Validate() map[string]string {
+	validate := validator.New()
+	if err := validate.Struct(params); err != nil {
+		errs := err.(validator.ValidationErrors)
+		errors := make(map[string]string)
+		for _, e := range errs {
+			errors[e.Field()] = fmt.Sprintf("failed on '%s' tag", e.Tag())
+		}
+		// Err := NewValidationError(errors)
+		return errors
+	}
+	return nil
+}
+
+func (params *QueryParams) Validate() map[string]string {
 	validate := validator.New()
 	if err := validate.Struct(params); err != nil {
 		errs := err.(validator.ValidationErrors)

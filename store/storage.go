@@ -13,7 +13,13 @@ import (
 	"github.com/pgvector/pgvector-go"
 )
 
+type Configer interface {
+	SetConfig(context.Context, map[string]any) (types.ConfigParams, error)
+	GetConfig(context.Context, int) (types.LLMConfig, error)
+}
 type DBStorer interface {
+	Configer
+
 	SaveDocument(context.Context, types.Document) error
 	GetDocumentByID(context.Context, uuid.UUID) (*types.Document, error)
 	SaveChunk(context.Context, types.Chunk) error
@@ -73,6 +79,70 @@ func (p *PostgresStore) DeleteChunksByDocID(ctx context.Context, docID uuid.UUID
 	// 	return fmt.Errorf("error deleting old chunks: %w", err)
 	// }
 	return err
+}
+
+func (p *PostgresStore) GetConfig(ctx context.Context, id int) (types.LLMConfig, error) {
+	var cfg types.LLMConfig
+	rows, err := p.pool.Query(ctx, "select * from config where id =$1", id)
+	if err != nil {
+		return cfg, err
+	}
+	defer rows.Close() // Обязательно закрываем rows для освобождения соединения
+
+	if !rows.Next() {
+		return cfg, sql.ErrNoRows
+	}
+
+	if err := rows.Scan(
+		&id,
+		&cfg.EmbeddingUrl,
+		&cfg.EmbeddingModel,
+		&cfg.LLMUrl,
+		&cfg.LLMModel,
+		&cfg.PromptStr); err != nil {
+		return cfg, err
+	}
+
+	return cfg, nil
+}
+
+func (p *PostgresStore) SetConfig(ctx context.Context, querySet map[string]any) (types.ConfigParams, error) {
+	id := 1 //set const id for next configurations
+	setClauses := []string{}
+	args := []any{}
+	argPos := 1
+
+	for k, v := range querySet {
+		setClauses = append(setClauses, fmt.Sprintf("%s = $%d", k, argPos))
+		args = append(args, v)
+		argPos++
+	}
+
+	args = append(args, id)
+
+	query := fmt.Sprintf(`
+	Update config 
+	SET %s
+	WHERE id=$%d 
+	RETURNING id, embedding_url, embedding_model, llm_ulr, llm_model, prompt_str
+	`, strings.Join(setClauses, ", "), argPos)
+
+	updCfg := types.ConfigParams{}
+	err := p.pool.QueryRow(ctx, query, args...).Scan(
+		&id,
+		&updCfg.EmbeddingUrl,
+		&updCfg.EmbeddingModel,
+		&updCfg.LLMUrl,
+		&updCfg.LLMModel,
+		&updCfg.PromptStr)
+
+	if err != nil {
+		fmt.Println("no rows found")
+		fmt.Println(err)
+		return updCfg, sql.ErrNoRows
+	}
+
+	return updCfg, nil
 }
 
 func (p *PostgresStore) SaveDocument(ctx context.Context, doc types.Document) error {
@@ -225,7 +295,6 @@ func (p *PostgresStore) createRagTables(ctx context.Context) error {
 		updated_at TIMESTAMP WITH TIME ZONE,
 		version INTEGER DEFAULT 1
 	);
-
 	CREATE INDEX IF NOT EXISTS idx_id ON documents(id);
 
     CREATE EXTENSION IF NOT EXISTS vector;
@@ -250,6 +319,16 @@ func (p *PostgresStore) createRagTables(ctx context.Context) error {
 	CREATE INDEX IF NOT EXISTS idx_chunks_doc_id ON chunks(doc_id);
 	CREATE INDEX IF NOT EXISTS idx_chunks_type ON chunks(type);
 	CREATE INDEX IF NOT EXISTS idx_chunks_section ON chunks(section);
+
+	CREATE TABLE IF NOT EXISTS config (
+		id INT NOT NULL PRIMARY KEY,
+    	embedding_url TEXT,    
+		embedding_model TEXT,
+		llm_ulr TEXT,
+		llm_model TEXT,
+		prompt_str TEXT
+    );
+
     `
 	_, err := p.pool.Exec(ctx, query)
 	return err

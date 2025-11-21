@@ -49,7 +49,7 @@ func (h *RequestHandler) HandleRequest(c *fiber.Ctx) error {
 		return err
 	}
 
-	similarChunks, err := h.contextStore.Search(context.Background(), embededPrompt, 5)
+	similarChunks, err := h.contextStore.Search(context.Background(), embededPrompt, 10)
 	if err != nil {
 		fmt.Println("error to get context from DB", err)
 		return err
@@ -76,7 +76,7 @@ func (h *RequestHandler) HandleRequest(c *fiber.Ctx) error {
 	fmt.Println("Count chunks after extend", len(cohChunks))
 
 	// 5. Формируем контекст из найденных чанков
-	context, contextChunks := h.buildContext(cohChunks)
+	promptContext, contextChunks := h.buildContext(cohChunks)
 
 	sources, err := h.formatSources(contextChunks)
 	if err != nil {
@@ -87,11 +87,16 @@ func (h *RequestHandler) HandleRequest(c *fiber.Ctx) error {
 
 	//fmt.Println("after builder: \n", context)
 
-	if context == "" {
-		context = "empty"
+	if promptContext == "" {
+		promptContext = "empty"
 	}
 
-	output, err := agent.GenerateAnswer(context, prompt)
+	sysPrompt, err := h.contextStore.GetConfig(context.Background(), 1)
+	if err != nil {
+		return err
+	}
+
+	output, err := agent.GenerateAnswer(promptContext, prompt, sysPrompt.PromptStr)
 	if err != nil {
 		return err
 	}

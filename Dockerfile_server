@@ -17,6 +17,5 @@ RUN apk add --no-cache ca-certificates tzdata
 WORKDIR /app
 COPY --from=builder /build/app/bin/server ./bin/server
 COPY --from=builder /build/env_docker/.env .
-COPY --from=builder /build/public/ /app/public
 EXPOSE 3000
 CMD ["/app/bin/server"]
