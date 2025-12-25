@@ -1,0 +1,1 @@
+ollama pull llama3.2:latest bge-m3:latest qwen3-vl:2b qwen2.5:7b

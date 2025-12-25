@@ -37,19 +37,20 @@ func (h *RequestHandler) HandleRequest(c *fiber.Ctx) error {
 	if c.BodyParser(&params) != nil {
 		return ErrBadRequest()
 	}
-
+	fmt.Println(params.UseLocal)
 	if errors := types.Validate(&params); len(errors) > 0 {
+		fmt.Println(errors)
 		return NewValidationError(errors)
 	}
 
 	prompt := params.Prompt
 
-	embededPrompt, err := h.embedder.Embed(prompt)
+	embededPrompt, err := h.embedder.Embed(prompt) //TODO set cfg from DB id =1
 	if err != nil {
 		return err
 	}
 
-	similarChunks, err := h.contextStore.Search(context.Background(), embededPrompt, 10)
+	similarChunks, err := h.contextStore.Search(context.Background(), embededPrompt, 3)
 	if err != nil {
 		fmt.Println("error to get context from DB", err)
 		return err
@@ -83,20 +84,26 @@ func (h *RequestHandler) HandleRequest(c *fiber.Ctx) error {
 		fmt.Println("Handle the error:", err)
 		return err
 	}
-	fmt.Println("-----------------")
 
-	//fmt.Println("after builder: \n", context)
+	// fmt.Println("after builder: \n", promptContext)
+	// return c.JSON("ok")
 
 	if promptContext == "" {
 		promptContext = "empty"
 	}
 
-	sysPrompt, err := h.contextStore.GetConfig(context.Background(), 1)
+	cfg, err := h.contextStore.GetConfig(context.Background(), 2)
 	if err != nil {
 		return err
 	}
 
-	output, err := agent.GenerateAnswer(promptContext, prompt, sysPrompt.PromptStr)
+	var output string
+	if params.UseLocal {
+		output, err = agent.GenerateAnswer(promptContext, prompt, cfg)
+	} else {
+		output, err = agent.GenerateAnswerCohere(promptContext, prompt, cfg)
+	}
+
 	if err != nil {
 		return err
 	}
@@ -148,6 +155,9 @@ func (h *RequestHandler) extendChunks(chunks []types.Chunk) ([]types.Chunk, erro
 	fmt.Println("Start begin extend")
 
 	for _, chunk := range chunks {
+		if chunk.Type != "text" {
+			continue
+		}
 		res, err := h.contextStore.GetNeighbours(context.Background(), chunk.ID)
 		if err != nil {
 			return nil, err
@@ -186,7 +196,7 @@ func (h *RequestHandler) filterChunks(chunks []types.Chunk) ([]types.Chunk, erro
 
 func (h *RequestHandler) buildContext(chunks []types.Chunk) (string, []types.Chunk) {
 	// var context string
-	maxContextLength := 20000 // Максимальный размер контекста в символах
+	maxContextLength := 40000 // Максимальный размер контекста в символах
 	// currentLength := len(context)
 	overlap, _ := strconv.Atoi(os.Getenv("CHUNK_OVERLAP"))
 
@@ -211,30 +221,83 @@ func (h *RequestHandler) buildContext(chunks []types.Chunk) (string, []types.Chu
 	}
 
 	//originalCount := len(chunks)
-	var contextChunks []types.Chunk
-	var sb strings.Builder
+	var (
+		sb            strings.Builder
+		contextChunks []types.Chunk
+		seenTables    = make(map[uuid.UUID]struct{})
+	)
+
 	for docID, docChunks := range grouped {
+
 		sb.WriteString(fmt.Sprintf("Документ %s:\n", docID))
-		// Удаляем перекрытия из последовательных чанков
-		chunks = h.removeChunkOverlaps(docChunks, overlap)
-		originalCount := len(docChunks)
-		fmt.Printf("[OVERLAP] Обработано чанков: %d -> %d (overlap: %d words)\n", originalCount, len(docChunks), overlap)
-		for i, ch := range chunks {
+
+		docChunks = h.removeChunkOverlaps(docChunks, overlap)
+
+		for i, ch := range docChunks {
+
+			// =========================
+			// 📊 TABLE ROW
+			// =========================
+			if ch.TableID.Valid {
+
+				tableID := ch.TableID.UUID
+
+				// таблицу уже добавляли → пропускаем
+				if _, ok := seenTables[tableID]; ok {
+					fmt.Println("filter tables")
+					continue
+				}
+
+				// грузим таблицу целиком
+				table, err := h.contextStore.GetTableByID(context.Background(), tableID)
+				if err != nil {
+					log.Printf("failed to load table %s: %v", tableID, err)
+					continue
+				}
+
+				sb.WriteString("\n")
+				sb.WriteString("Таблица:\n")
+				sb.WriteString(table.Content)
+				sb.WriteString("\n\n")
+
+				seenTables[tableID] = struct{}{}
+				contextChunks = append(contextChunks, ch)
+
+				if sb.Len() > maxContextLength {
+					log.Printf("[CONTEXT] limit reached (%d symbols)", maxContextLength)
+					break
+				}
+
+				continue
+			}
+
+			// =========================
+			// 📝 TEXT / IMAGE
+			// =========================
 			if ch.Section != "" {
 				sb.WriteString(fmt.Sprintf("## %s\n", ch.Section))
 			}
-			// sb.WriteString(fmt.Sprintf("Векторное сходство: %f\n", ch.Distance))
+
 			sb.WriteString(ch.Content)
+			sb.WriteString("\n\n")
+
+			contextChunks = append(contextChunks, ch)
+
 			if sb.Len() > maxContextLength {
-				fmt.Printf("[CONTEXT] Достигнут лимит контекста (%d symbols), используем %d чанков\n", maxContextLength, i)
+				log.Printf("[CONTEXT] limit reached (%d symbols) at chunk %d", maxContextLength, i)
 				break
 			}
-			contextChunks = append(contextChunks, ch)
 		}
 
 		sb.WriteString("\n")
 	}
-	fmt.Printf("[CONTEXT] Сформирован контекст: %d символов из %d чанков\n", len(sb.String()), len(chunks))
+
+	log.Printf(
+		"[CONTEXT] built: %d symbols from %d chunks (tables: %d)",
+		sb.Len(),
+		len(contextChunks),
+		len(seenTables),
+	)
 	return sb.String(), contextChunks
 }
 
@@ -259,7 +322,11 @@ func (h *RequestHandler) removeChunkOverlaps(chunks []types.Chunk, overlap int) 
 			words := strings.Fields(chunk.Content)
 			if len(words) > overlap {
 				originalLength := len(chunk.Content)
-				chunk.Content = strings.Join(words[overlap:], " ")
+				if chunk.Type == "json" {
+					chunk.Content = strings.Join(words[0:], " ")
+				} else {
+					chunk.Content = strings.Join(words[overlap:], " ")
+				}
 				fmt.Printf("[OVERLAP] Обрезан текст чанка %d: %d -> %d символов\n", chunk.Index, originalLength, len(chunk.Content))
 				result = append(result, chunk)
 			} else {

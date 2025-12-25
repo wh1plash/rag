@@ -4,6 +4,7 @@
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>AI Knowledge Base Assistant</title>
+    <link rel="icon" type="image/x-icon" href="/favicon.ico">    
     <style>
         body {
             font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
@@ -329,6 +330,19 @@
         
         <button id="askBtn" onclick="askQuestion()">Отправить вопрос</button>
         
+        <div class="input-group" style="margin-top: 30px;">
+            <label for="fileInput">Загрузить файл для обработки:</label>
+            <div style="display: flex; gap: 10px;">
+                <input type="file" id="fileInput" style="flex: 1; padding: 10px; border: 2px solid #e1e5e9; border-radius: 10px; box-sizing: border-box;">
+                <button id="loadFileBtn" onclick="processFile()" style="width: auto; padding: 15px 20px;">Обработать файл</button>
+            </div>
+        </div>
+
+<button id="useLocalBtn" onclick="toggleLocalLLM()" 
+        style="width: auto; padding: 15px 20px; background: #dc3545;">
+    <span id="useLocalIcon">🌐</span> LLM type
+</button>
+        
         <div id="response" class="response">
             <h3>💡 Ответ системы</h3>
             <div id="answer" class="answer-content"></div>
@@ -385,7 +399,10 @@
                     headers: {
                         'Content-Type': 'application/json',
                     },
-                    body: JSON.stringify({ prompt: query })
+                    body: JSON.stringify({ 
+                        prompt: query,
+                        use_local: useLocal
+                    })
                 });
 
                 if (!response.ok) {
@@ -465,8 +482,15 @@
             
             // Красивое отображение уверенности
             const confidencePercent = Math.round(data.confidence * 100);
-            const confidenceColor = confidencePercent >= 80 ? '#28a745' : 
-                                  confidencePercent >= 60 ? '#ffc107' : '#dc3545';
+            const confidenceColor =
+                confidencePercent >= 95 ? '#8a2be2' :        // фиолетовый
+                confidencePercent >= 90 ? '#28a745' :          // зелёный
+                confidencePercent >= 80 ? '#007bff' :          // синий
+                confidencePercent >= 70 ? '#ffc107' :          // жёлтый
+                confidencePercent >= 60 ? '#ff8c00' :          // оранжевый
+                confidencePercent >= 40 ? '#fd7e14' :          // тёмно-оранжевый
+                confidencePercent >= 20 ? '#dc3545' :          // красный
+                                        '#800000';          // тёмно-красный (очень низкая уверенность)
             confidence.innerHTML = `
                 <span style="color: ${confidenceColor}; font-weight: 600;">
                     🎯 Уверенность: ${confidencePercent}%
@@ -583,12 +607,89 @@
             return languages[langCode] || langCode.charAt(0).toUpperCase() + langCode.slice(1);
         }
 
+        // Функция для обработки файла
+        async function processFile() {
+            const fileInput = document.getElementById('fileInput');
+            const file = fileInput.files[0];
+            
+            if (!file) {
+                alert('Пожалуйста, выберите файл');
+                return;
+            }
+
+            const loadFileBtn = document.getElementById('loadFileBtn');
+            const loading = document.getElementById('loading');
+            const error = document.getElementById('error');
+
+            loadFileBtn.disabled = true;
+            loading.style.display = 'block';
+            error.style.display = 'none';
+
+            try {
+                const formData = new FormData();
+                formData.append('file', file);
+
+                const response = await fetch('http://localhost:3000/api/v1/process', {
+                    method: 'POST',
+                    body: formData
+                });
+
+                if (!response.ok) {
+                    throw new Error(`HTTP error! status: ${response.status}`);
+                }
+
+                // The endpoint returns the file as download
+                const blob = await response.blob();
+                const url = window.URL.createObjectURL(blob);
+                const a = document.createElement('a');
+                a.href = url;
+                a.download = file.name;
+                document.body.appendChild(a);
+                a.click();
+                window.URL.revokeObjectURL(url);
+                document.body.removeChild(a);
+                
+                alert('Файл успешно обработан и загружен');
+            } catch (err) {
+                console.error('Error:', err);
+                error.textContent = 'Ошибка при обработке файла: ' + err.message;
+                error.style.display = 'block';
+            } finally {
+                loadFileBtn.disabled = false;
+                loading.style.display = 'none';
+                fileInput.value = '';
+            }
+        }
+
         // Поддержка Enter для отправки
         document.getElementById('query').addEventListener('keypress', function(e) {
             if (e.key === 'Enter' && e.ctrlKey) {
                 askQuestion();
             }
         });
+
+function updateUseLocalButton() {
+    const btn = document.getElementById('useLocalBtn');
+    const icon = document.getElementById('useLocalIcon');
+
+    if (useLocal) {
+        btn.style.background = '#28a745'; // зелёная
+        icon.textContent = '🧠';          // local LLM
+    } else {
+        btn.style.background = '#dc3545'; // красная
+        icon.textContent = '🌐';          // remote LLM
+    }
+}
+
+function toggleLocalLLM() {
+    useLocal = !useLocal;
+    updateUseLocalButton();
+    console.log("useLocal =", useLocal);
+}
+
+let useLocal = true;
+updateUseLocalButton();
+
     </script>
 </body>
-</html> 
+</html>

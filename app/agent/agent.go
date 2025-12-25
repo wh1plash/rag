@@ -7,11 +7,32 @@ import (
 	"io"
 	"net/http"
 	"os"
+	"rag/types"
 	"time"
 
 	"github.com/pkoukk/tiktoken-go"
 )
 
+type CohereMessage struct {
+	Role    string `json:"role"`
+	Content string `json:"content"`
+}
+
+type CohereRequest struct {
+	Model    string          `json:"model"`
+	Messages []CohereMessage `json:"messages"`
+	Stream   bool            `json:"stream"`
+}
+type CohereResponse struct {
+	ID      string `json:"id"`
+	Message struct {
+		Role    string `json:"role"`
+		Content []struct {
+			Type string `json:"type"`
+			Text string `json:"text"`
+		} `json:"content"`
+	} `json:"message"`
+}
 type GenerateRequest struct {
 	Model  string `json:"model"`
 	System string `json:"system"`
@@ -23,14 +44,76 @@ type GenerateResponse struct {
 	Response string `json:"response"`
 }
 
-func GenerateAnswer(context string, question, sysPrompt string) (string, error) {
+func ProcessFile(data string, cfg types.LLMConfig) (string, error) {
+	start := time.Now()
+	defer func() {
+		fmt.Printf("Time for processing file: %v\n", time.Since(start))
+	}()
+
+	fmt.Println("Startin process file...")
+
+	corrected, err := SendToOllama(MakePrompt(data), cfg)
+	if err != nil {
+		return "", err
+	}
+
+	return corrected, nil
+}
+
+func MakePrompt(text string) string {
+	return fmt.Sprintf(`
+Исправь орфографические, пунктуационные и грамматические ошибки в тексте.
+
+Текст:
+%s
+`, text)
+}
+
+func SendToOllama(prompt string, cfg types.LLMConfig) (string, error) {
+	payload := GenerateRequest{
+		Model:  cfg.Model,
+		System: cfg.PromptStr, //"Ты корректор русского языка. Сохрани стиль и смысл. Верни только исправленный текст без пояснений. Ничего не додумывай и не изменяй смысл.",
+		Prompt: prompt,
+		Stream: false,
+	}
+
+	body, err := json.Marshal(payload)
+	if err != nil {
+		return "", err
+	}
+
+	resp, err := http.Post(
+		cfg.Url,
+		"application/json",
+		bytes.NewBuffer(body),
+	)
+	if err != nil {
+		return "", err
+	}
+	defer resp.Body.Close()
+
+	respBody, err := io.ReadAll(resp.Body)
+	if err != nil {
+		return "", err
+	}
+
+	var llmResp GenerateResponse
+	if err := json.Unmarshal(respBody, &llmResp); err != nil {
+		return "", err
+	}
+
+	return llmResp.Response, nil
+}
+
+func GenerateAnswerCohere(context string, question string, cfg types.LLMConfig) (string, error) {
+	url := "https://api.cohere.com/v2/chat"
+	apiKey := "cQ9H6hdb9sshZTtgMvEDgHB4DoopOLZ3YxFuW0AS"
 	start := time.Now()
 	defer func() {
 		fmt.Printf("LLM answer tooks %v\n", time.Since(start))
 	}()
 
 	fmt.Println("Startin promt to LLM...")
-	fmt.Println(sysPrompt)
 
 	prompt := fmt.Sprintf(`Контекст з декількох документів:
 Контекст:
@@ -39,9 +122,64 @@ func GenerateAnswer(context string, question, sysPrompt string) (string, error) 
 %s 
 Відповідь:`, context, question)
 
+	reqBody, _ := json.Marshal(CohereRequest{
+		Model:  "command-a-03-2025",
+		Stream: false,
+		Messages: []CohereMessage{
+			{
+				Role:    "system",
+				Content: cfg.PromptStr,
+			},
+			{
+				Role:    "user",
+				Content: prompt,
+			},
+		},
+	})
+	req, err := http.NewRequest("POST", url, bytes.NewBuffer(reqBody))
+	if err != nil {
+		fmt.Println("Error to prompting Cohere")
+	}
+	req.Header.Set("Authorization", "Bearer "+apiKey)
+	req.Header.Set("Content-Type", "application/json")
+
+	resp, err := http.DefaultClient.Do(req)
+	if err != nil {
+		return "", err
+	}
+	defer resp.Body.Close()
+
+	body, _ := io.ReadAll(resp.Body)
+
+	fmt.Println("RAW RESPONSE:", string(body))
+	var coResp CohereResponse
+	_ = json.Unmarshal(body, &coResp)
+
+	var answer string
+	if len(coResp.Message.Content) > 0 {
+		answer = coResp.Message.Content[0].Text
+	}
+	return answer, nil
+}
+
+func GenerateAnswer(context string, question string, cfg types.LLMConfig) (string, error) {
+	start := time.Now()
+	defer func() {
+		fmt.Printf("LLM answer tooks %v\n", time.Since(start))
+	}()
+
+	fmt.Println("Startin promt to LLM...")
+
+	prompt := fmt.Sprintf(`Контекст из нескольких документов:
+Контекст:
+%s
+Вопрос:
+%s 
+Ответ:`, context, question)
+
 	reqBody, _ := json.Marshal(GenerateRequest{
 		Model:  os.Getenv("LLM_MODEL"),
-		System: sysPrompt,
+		System: cfg.PromptStr,
 		Prompt: prompt,
 		Stream: false,
 	})
@@ -52,9 +190,10 @@ func GenerateAnswer(context string, question, sysPrompt string) (string, error) 
 	fmt.Println("Size of Prompt with system in symbols:", len(reqBody))
 	fmt.Println("-----------")
 
-	//return "ok", nil
+	// fmt.Println(prompt)
+	// return "ok", nil
 
-	resp, err := http.Post(os.Getenv("LLM_URL"),
+	resp, err := http.Post(cfg.Url,
 		"application/json",
 		bytes.NewBuffer(reqBody),
 	)

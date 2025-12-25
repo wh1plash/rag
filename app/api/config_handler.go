@@ -5,6 +5,7 @@ import (
 	"rag/store"
 	"rag/types"
 	"reflect"
+	"strconv"
 	"strings"
 
 	"github.com/gofiber/fiber/v2"
@@ -21,6 +22,12 @@ func NewConfigHandler(cfgStore store.DBStorer) *ConfigHandler {
 }
 
 func (h *ConfigHandler) HandleSetConfig(c *fiber.Ctx) error {
+	idstr := c.Params("id")
+	id, err := strconv.Atoi(idstr)
+	if err != nil {
+		return ErrInvalidID()
+	}
+
 	var params types.ConfigParams
 	if c.BodyParser(&params) != nil {
 		return ErrBadRequest()
@@ -48,7 +55,7 @@ func (h *ConfigHandler) HandleSetConfig(c *fiber.Ctx) error {
 		return ErrBadRequest()
 	}
 
-	resp, err := h.configStore.SetConfig(context.Background(), querySet)
+	resp, err := h.configStore.SetConfig(context.Background(), id, querySet)
 	if err != nil {
 		return err
 	}

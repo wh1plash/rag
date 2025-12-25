@@ -13,15 +13,14 @@ type Validater interface {
 }
 
 type QueryParams struct {
-	Prompt string `json:"prompt" validate:"required"`
+	Prompt   string `json:"prompt" validate:"required"`
+	UseLocal bool   `json:"use_local"`
 }
 
 type ConfigParams struct {
-	EmbeddingUrl   string `db:"embedding_url" json:"embedding_url,omitempty"`
-	EmbeddingModel string `db:"embedding_model" json:"embedding_model,omitempty"`
-	LLMUrl         string `db:"llm_ulr" json:"llm_ulr,omitempty"`
-	LLMModel       string `db:"llm_model" json:"llm_model,omitempty"`
-	PromptStr      string `db:"prompt_str" json:"prompt_str,omitempty"`
+	Url       string `db:"llm_url" json:"llm_url,omitempty"`
+	Model     string `db:"llm_model" json:"llm_model,omitempty"`
+	PromptStr string `db:"prompt_str" json:"prompt_str,omitempty"`
 }
 
 func Validate(v Validater) map[string]string {

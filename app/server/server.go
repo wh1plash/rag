@@ -7,6 +7,7 @@ import (
 	"log/slog"
 	"os"
 	"rag/app/api"
+	"rag/app/middleware"
 	"rag/store"
 	"strconv"
 
@@ -44,11 +45,12 @@ func (s *Server) Run() {
 	}
 
 	var (
-		app            = fiber.New(config)
-		checkHandler   = api.NewCheckHandler
-		requestHandler = api.NewRequestHandler(pool)
-		fileHandler    = api.NewRequestHandler(pool)
-		configHandler  = api.NewConfigHandler(pool)
+		app                = fiber.New(config)
+		checkHandler       = api.NewCheckHandler
+		requestHandler     = api.NewRequestHandler(pool)
+		fileHandler        = api.NewRequestHandler(pool)
+		configHandler      = api.NewConfigHandler(pool)
+		fileProcessHandler = api.NewFileHandler(pool)
 		// userHandler  = api.NewUserHandler(db)
 		// authHandler  = api.NewAuthHandler(db)
 		check = app.Group("/check")
@@ -58,8 +60,10 @@ func (s *Server) Run() {
 	check.Get("/healthy", checkHandler().HandleHealthy)
 	apiv1.Post("/request", requestHandler.HandleRequest)
 	apiv1.Post("/upload", fileHandler.HandlePDF)
-	apiv1.Post("/config", configHandler.HandleSetConfig)
+	apiv1.Post("/process", fileProcessHandler.ProcessFile)
+	apiv1.Post("/config/:id", configHandler.HandleSetConfig)
 
+	app.Use(middleware.PlugStatic("/"))
 	app.Static("/", "./public")
 
 	err = app.Listen(s.listenAddr)

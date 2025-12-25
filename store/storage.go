@@ -14,18 +14,20 @@ import (
 )
 
 type Configer interface {
-	SetConfig(context.Context, map[string]any) (types.ConfigParams, error)
+	SetConfig(context.Context, int, map[string]any) (types.ConfigParams, error)
 	GetConfig(context.Context, int) (types.LLMConfig, error)
 }
 type DBStorer interface {
 	Configer
 
 	SaveDocument(context.Context, types.Document) error
+	SaveTable(context.Context, types.FullTable) error
 	GetDocumentByID(context.Context, uuid.UUID) (*types.Document, error)
 	SaveChunk(context.Context, types.Chunk) error
 	DeleteChunksByDocID(context.Context, uuid.UUID) error
 	Search(context.Context, []float32, int) ([]types.Chunk, error)
 	GetNeighbours(context.Context, uuid.UUID) ([]types.Chunk, error)
+	GetTableByID(context.Context, uuid.UUID) (*types.FullTable, error)
 }
 
 type PostgresStore struct {
@@ -46,6 +48,28 @@ func NewPostgresStore(ctx context.Context, connStr string) (*PostgresStore, erro
 	return &PostgresStore{
 		pool: pool,
 	}, nil
+}
+
+func (p *PostgresStore) GetTableByID(ctx context.Context, tableID uuid.UUID) (*types.FullTable, error) {
+	rows, err := p.pool.Query(ctx, "select * from tables where id =$1", tableID)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close() // Обязательно закрываем rows для освобождения соединения
+
+	if !rows.Next() {
+		return nil, sql.ErrNoRows
+	}
+
+	table := &types.FullTable{}
+	if err := rows.Scan(
+		&table.ID,
+		&table.DocID,
+		&table.Index,
+		&table.Content); err != nil {
+		return nil, err
+	}
+	return table, nil
 }
 
 func (p *PostgresStore) GetDocumentByID(ctx context.Context, docID uuid.UUID) (*types.Document, error) {
@@ -95,10 +119,8 @@ func (p *PostgresStore) GetConfig(ctx context.Context, id int) (types.LLMConfig,
 
 	if err := rows.Scan(
 		&id,
-		&cfg.EmbeddingUrl,
-		&cfg.EmbeddingModel,
-		&cfg.LLMUrl,
-		&cfg.LLMModel,
+		&cfg.Url,
+		&cfg.Model,
 		&cfg.PromptStr); err != nil {
 		return cfg, err
 	}
@@ -106,8 +128,7 @@ func (p *PostgresStore) GetConfig(ctx context.Context, id int) (types.LLMConfig,
 	return cfg, nil
 }
 
-func (p *PostgresStore) SetConfig(ctx context.Context, querySet map[string]any) (types.ConfigParams, error) {
-	id := 1 //set const id for next configurations
+func (p *PostgresStore) SetConfig(ctx context.Context, id int, querySet map[string]any) (types.ConfigParams, error) {
 	setClauses := []string{}
 	args := []any{}
 	argPos := 1
@@ -124,16 +145,14 @@ func (p *PostgresStore) SetConfig(ctx context.Context, querySet map[string]any) 
 	Update config 
 	SET %s
 	WHERE id=$%d 
-	RETURNING id, embedding_url, embedding_model, llm_ulr, llm_model, prompt_str
+	RETURNING id, llm_url, llm_model, prompt_str
 	`, strings.Join(setClauses, ", "), argPos)
 
 	updCfg := types.ConfigParams{}
 	err := p.pool.QueryRow(ctx, query, args...).Scan(
 		&id,
-		&updCfg.EmbeddingUrl,
-		&updCfg.EmbeddingModel,
-		&updCfg.LLMUrl,
-		&updCfg.LLMModel,
+		&updCfg.Url,
+		&updCfg.Model,
 		&updCfg.PromptStr)
 
 	if err != nil {
@@ -170,17 +189,40 @@ func (p *PostgresStore) SaveDocument(ctx context.Context, doc types.Document) er
 	return err
 }
 
+func (p *PostgresStore) SaveTable(ctx context.Context, t types.FullTable) error {
+	query := `INSERT INTO tables (id, doc_id, index, content_md)
+		VALUES ($1, $2, $3, $4)
+		ON CONFLICT (id) DO UPDATE SET
+			id = EXCLUDED.id,
+			doc_id = EXCLUDED.doc_id,
+			index = EXCLUDED.index,
+			content_md = EXCLUDED.content_md
+			`
+	_, err := p.pool.Exec(
+		ctx,
+		query,
+		t.ID,
+		t.DocID,
+		t.Index,
+		t.Content,
+	)
+	return err
+}
+
 func (p *PostgresStore) SaveChunk(ctx context.Context, c types.Chunk) error {
 	query := `
-    INSERT INTO chunks (id, doc_id, index, type, section, content, embedding)
-    VALUES ($1, $2, $3, $4, $5, $6, $7)
+    INSERT INTO chunks (id, doc_id, index, coherence_prev, type, section, key, table_id, content, embedding)
+    VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10)
     `
 	_, err := p.pool.Exec(ctx, query,
 		c.ID,
 		c.DocID,
 		c.Index,
+		c.CohPrev,
 		c.Type,
 		c.Section,
+		c.Key,
+		c.TableID,
 		c.Content,
 		fmt.Sprintf("[%s]", toPgVector(c.Embedding)),
 	)
@@ -243,7 +285,7 @@ func (p *PostgresStore) Search(ctx context.Context, queryVec []float32, limit in
 	vector := pgvector.NewVector(queryVec)
 
 	query := `
-		SELECT pc.id, pc.doc_id, pc.index, pc.coherence_prev, pc.coherence_next, pc.content,
+		SELECT pc.id, pc.doc_id, pc.index, pc.type, pc.key, pc.table_id, pc.coherence_prev, pc.coherence_next, pc.content,
 		       1-(pc.embedding <=> $1) as distance
 		FROM chunks pc
 		JOIN documents doc ON pc.doc_id = doc.id
@@ -264,6 +306,9 @@ func (p *PostgresStore) Search(ctx context.Context, queryVec []float32, limit in
 			&chunk.ID,
 			&chunk.DocID,
 			&chunk.Index,
+			&chunk.Type,
+			&chunk.Key,
+			&chunk.TableID,
 			&chunk.CohPrev,
 			&chunk.CohNext,
 			&chunk.Content,
@@ -284,7 +329,7 @@ func (p *PostgresStore) Search(ctx context.Context, queryVec []float32, limit in
 }
 
 func (p *PostgresStore) createRagTables(ctx context.Context) error {
-
+	fmt.Println("Starting create tables...")
 	query := `
 	CREATE TABLE IF NOT EXISTS documents (
 		id UUID PRIMARY KEY,
@@ -303,8 +348,10 @@ func (p *PostgresStore) createRagTables(ctx context.Context) error {
         id UUID PRIMARY KEY,
         doc_id UUID NOT NULL,
         index INT NOT NULL,
-        type TEXT CHECK (type IN ('text','json')),
+        type TEXT CHECK (type IN ('text','json','image','tablerow')),
         section TEXT,
+		key TEXT,
+		table_id UUID NULL,
 		coherence_prev INT,
 		coherence_next INT,
         content TEXT NOT NULL,
@@ -322,13 +369,17 @@ func (p *PostgresStore) createRagTables(ctx context.Context) error {
 
 	CREATE TABLE IF NOT EXISTS config (
 		id INT NOT NULL PRIMARY KEY,
-    	embedding_url TEXT,    
-		embedding_model TEXT,
-		llm_ulr TEXT,
+    	llm_url TEXT,    
 		llm_model TEXT,
 		prompt_str TEXT
     );
 
+	CREATE TABLE IF NOT EXISTS tables (
+		id           UUID PRIMARY KEY,
+		doc_id       UUID NOT NULL,
+		index  		 INT,
+		content_md   TEXT
+	);
     `
 	_, err := p.pool.Exec(ctx, query)
 	return err

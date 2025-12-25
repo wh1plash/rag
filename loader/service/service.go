@@ -19,8 +19,6 @@ import (
 	"github.com/google/uuid"
 )
 
-// +371 29 16 74 29
-
 type Service struct {
 	logger *slog.Logger
 	store  store.DBStorer
@@ -162,7 +160,12 @@ func (s *Service) DocumentSave(ctx context.Context, docChan <-chan *types.Docume
 			fmt.Println(err)
 			return err
 		}
-
+		for i := range doc.FullTable {
+			if err := s.store.SaveTable(ctx, doc.FullTable[i]); err != nil {
+				fmt.Println(err)
+				return err
+			}
+		}
 		for i := range doc.Chunks {
 			if err := s.store.SaveChunk(ctx, doc.Chunks[i]); err != nil {
 				fmt.Println(err)
