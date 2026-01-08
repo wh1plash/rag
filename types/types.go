@@ -21,7 +21,7 @@ type Chunk struct {
 	Index     int
 	Type      string
 	Section   string
-	Key       string
+	Key       sql.NullString
 	TableID   uuid.NullUUID
 	CohPrev   sql.NullInt64
 	CohNext   sql.NullInt64

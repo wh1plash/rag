@@ -6,7 +6,6 @@ import (
 	"fmt"
 	"io"
 	"net/http"
-	"os"
 	"rag/types"
 	"time"
 
@@ -34,10 +33,17 @@ type CohereResponse struct {
 	} `json:"message"`
 }
 type GenerateRequest struct {
-	Model  string `json:"model"`
-	System string `json:"system"`
-	Prompt string `json:"prompt"`
-	Stream bool   `json:"stream"`
+	Model      string  `json:"model"`
+	System     string  `json:"system"`
+	Prompt     string  `json:"prompt"`
+	Stream     bool    `json:"stream"`
+	Temp       float64 `json:"temperature"`
+	TopP       float64 `json:"top_p"`
+	TopK       int     `json:"top_k"`
+	NumPredict int     `json:"num_predict"`
+	NumCtx     int     `json:"num_ctx"`
+	NumThreads int     `json:"num_threads"`
+	Repeat     float64 `json:"repeat_penalty"`
 }
 
 type GenerateResponse struct {
@@ -178,10 +184,17 @@ func GenerateAnswer(context string, question string, cfg types.LLMConfig) (strin
 Ответ:`, context, question)
 
 	reqBody, _ := json.Marshal(GenerateRequest{
-		Model:  os.Getenv("LLM_MODEL"),
-		System: cfg.PromptStr,
-		Prompt: prompt,
-		Stream: false,
+		Model:      cfg.Model,
+		System:     cfg.PromptStr,
+		Prompt:     prompt,
+		Stream:     false,
+		Temp:       0.1,
+		TopP:       0.9,
+		TopK:       40,
+		NumPredict: 512,
+		NumCtx:     4096,
+		NumThreads: 8,
+		Repeat:     1.1,
 	})
 
 	count, _ := CountTokensLlama(reqBody)
@@ -193,6 +206,7 @@ func GenerateAnswer(context string, question string, cfg types.LLMConfig) (strin
 	// fmt.Println(prompt)
 	// return "ok", nil
 
+	fmt.Printf("Prompting to: %s, %s\n", cfg.Url, cfg.Model)
 	resp, err := http.Post(cfg.Url,
 		"application/json",
 		bytes.NewBuffer(reqBody),
@@ -208,6 +222,7 @@ func GenerateAnswer(context string, question string, cfg types.LLMConfig) (strin
 	if err := json.Unmarshal(body, &genResp); err == nil && genResp.Response != "" {
 		return genResp.Response, err
 	}
+	fmt.Printf("%+v\n", genResp)
 
 	// Потоковый ответ: соберём всё в строку
 	type StreamChunk struct {

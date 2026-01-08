@@ -486,7 +486,10 @@ func (l *PDFLoader) splitByChunks(filePath string, id uuid.UUID, chunkSize, over
 					DocID: id,
 					Index: pos,
 					Type:  string(types.ChunkTableRow),
-					Key:   row.Key,
+					Key: sql.NullString{
+						String: row.Key,
+						Valid:  row.Key != "",
+					},
 					TableID: uuid.NullUUID{
 						UUID:  tableID,
 						Valid: true,

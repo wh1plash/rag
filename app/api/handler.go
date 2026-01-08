@@ -52,7 +52,7 @@ func (h *RequestHandler) HandleRequest(c *fiber.Ctx) error {
 
 	similarChunks, err := h.contextStore.Search(context.Background(), embededPrompt, 3)
 	if err != nil {
-		fmt.Println("error to get context from DB", err)
+		fmt.Println("error to get context from DB:", err)
 		return err
 	}
 
@@ -196,7 +196,7 @@ func (h *RequestHandler) filterChunks(chunks []types.Chunk) ([]types.Chunk, erro
 
 func (h *RequestHandler) buildContext(chunks []types.Chunk) (string, []types.Chunk) {
 	// var context string
-	maxContextLength := 40000 // Максимальный размер контекста в символах
+	maxContextLength := 70000 // Максимальный размер контекста в символах
 	// currentLength := len(context)
 	overlap, _ := strconv.Atoi(os.Getenv("CHUNK_OVERLAP"))
 
