@@ -385,6 +385,18 @@ func (p *PostgresStore) createRagTables(ctx context.Context) error {
 	return err
 }
 
+func (p *PostgresStore) SeedConfig(ctx context.Context, id int, url, model, prompt string) error {
+	_, err := p.pool.Exec(ctx, `
+		INSERT INTO config (id, llm_url, llm_model, prompt_str)
+		VALUES ($1, $2, $3, $4)
+		ON CONFLICT (id) DO UPDATE SET
+			llm_url = EXCLUDED.llm_url,
+			llm_model = EXCLUDED.llm_model,
+			prompt_str = EXCLUDED.prompt_str
+	`, id, url, model, prompt)
+	return err
+}
+
 func (p *PostgresStore) Init(ctx context.Context) error {
 	return p.createRagTables(ctx)
 }

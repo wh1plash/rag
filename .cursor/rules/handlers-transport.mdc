@@ -1,0 +1,47 @@
+---
+description: Тонкие HTTP/Telegram handlers — без бизнес-логики и SQL
+globs: "{app/api/**/*.go,app/server/**/*.go,app/middleware/**/*.go,telegram/**/*.go,**/delivery/**/*.go}"
+alwaysApply: false
+---
+
+# Transport / delivery
+
+Handlers делают только:
+
+1. Parse request (JSON / form / TG update)
+2. Validate input
+3. Вызов **usecase**
+4. Map result → HTTP/TG response
+5. Map domain/usecase errors → status codes
+
+## Запрещено в handlers
+
+- Оркестрация RAG (embed → search → filter → LLM) — это usecase
+- SQL, pgx, reflect по `db` tags
+- Создание `model.NewOllamaEmbedder()` / прямые вызовы `agent.GenerateAnswer*`
+- Бизнес-правила фильтрации/расширения чанков
+
+```go
+// ❌ BAD — fat handler (как сейчас RequestHandler.HandleRequest)
+embeded, _ := h.embedder.Embed(prompt)
+chunks, _ := h.contextStore.Search(ctx, embeded, 5)
+out, _ := agent.GenerateAnswer(ctxText, prompt, cfg)
+
+// ✅ GOOD
+func (h *RequestHandler) HandleRequest(c *fiber.Ctx) error {
+    var req dto.QueryParams
+    if err := c.BodyParser(&req); err != nil {
+        return ErrBadRequest()
+    }
+    if errs := req.Validate(); len(errs) > 0 {
+        return NewValidationError(errs)
+    }
+    res, err := h.queryUC.Execute(c.Context(), req.ToInput())
+    if err != nil {
+        return err
+    }
+    return c.JSON(dto.FromResult(res))
+}
+```
+
+DTO валидации и JSON-теги — в delivery (`dto`), не в domain.

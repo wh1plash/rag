@@ -1,0 +1,40 @@
+---
+description: Idiomatic Go conventions для этого репозитория
+globs: "**/*.go"
+alwaysApply: false
+---
+
+# Go conventions
+
+## Функции и типы
+
+- Короткие функции, одна ответственность.
+- Зависимости через конструктор `New...(deps)`; без скрытого global mutable state.
+- Маленькие интерфейсы (1–3 метода) у потребителя.
+
+## Context и ошибки
+
+- `context.Context` — первый аргумент на I/O (DB, HTTP, LLM, FS).
+- Ошибки wrap: `fmt.Errorf("search chunks: %w", err)`.
+- Не глотать ошибки; не использовать `_` для критичных err без причины.
+
+```go
+// ❌ BAD
+similar, _ := h.contextStore.Search(context.Background(), emb, 5)
+
+// ✅ GOOD
+similar, err := h.repo.Search(ctx, emb, 5)
+if err != nil {
+    return fmt.Errorf("search chunks: %w", err)
+}
+```
+
+## Конфиг
+
+- `os.Getenv` только в `cmd/` / `configs/`, не в adapters mid-flight и не в handlers.
+- Не хардкодить API keys, URL сервисов, magic config IDs в бизнес-коде.
+
+## Именование в этом репо
+
+- Не класть domain models в пакет `model` (сейчас там Ollama-клиенты).
+- Новые адаптеры — в `internal/adapter/<name>` или явно: `postgres`, `ollama`, `docling`.

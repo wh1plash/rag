@@ -24,7 +24,7 @@ services:
     environment:
       OLLAMA_NUM_THREADS: "12"
       OLLAMA_BATCH_SIZE: "32"
-      OLLAMA_CONTEXT_LENGTH: "4096"
+      OLLAMA_CONTEXT_LENGTH: "8192"
       OLLAMA_FLASH_ATTENTION: "false"
       OLLAMA_USE_MMAP: "1"
       OLLAMA_NUM_PARALLEL: "1"
@@ -37,21 +37,25 @@ services:
       resources:
         limits:
           cpus: "12.0"
-          memory: 16G
+          memory: 24G
         reservations:
           cpus: "12.0"
-          memory: 8G
+          memory: 16G
     restart: unless-stopped
 
   loader:
     build:
       context: .
       dockerfile: Dockerfile_loader
+    environment:
+      DOCLING_URL: http://docling:5001
     volumes:
       - ./source:/app/${LOADER_SOURCE_DIR}
     depends_on:
       postgres:
         condition: service_healthy
+      docling:
+        condition: service_started
     restart: unless-stopped
 
   server:
@@ -60,22 +64,69 @@ services:
       dockerfile: Dockerfile_server
     ports:
       - "3000:3000"
+    environment:
+      # Внутри compose localhost ≠ ollama. Не подставлять LLM_*_BASE_URL с хоста.
+      OLLAMA_EMBEDDING_URL: http://ollama:11434/api/embeddings
+      OLLAMA_VL_URL: http://ollama:11434/api/generate
+      LLM_URL: http://ollama:11434/api/generate
+      LLM_LOCAL_BASE_URL: http://ollama:11434/v1
+      WEB_SEARCH_ENABLED: ${WEB_SEARCH_ENABLED:-true}
+      TAVILY_API_KEY: ${TAVILY_API_KEY:-}
+      TAVILY_MAX_RESULTS: ${TAVILY_MAX_RESULTS:-3}
+      TAVILY_SEARCH_DEPTH: ${TAVILY_SEARCH_DEPTH:-basic}
+      TAVILY_INCLUDE_RAW: ${TAVILY_INCLUDE_RAW:-true}
+      MIN_CHUNK_DISTANCE: ${MIN_CHUNK_DISTANCE:-0.5}
+      MAX_CONTEXT_LENGTH: ${MAX_CONTEXT_LENGTH:-70000}
+      WEB_CHUNK_SIZE: ${WEB_CHUNK_SIZE:-300}
+      WEB_CHUNK_OVERLAP: ${WEB_CHUNK_OVERLAP:-50}
+      LLM_LOCAL_API_KEY: ${LLM_LOCAL_API_KEY:-}
+      LLM_LOCAL_MODEL: ${LLM_LOCAL_MODEL:-qwen2.5:7b}
+      LLM_LOCAL_NUM_CTX: ${LLM_LOCAL_NUM_CTX:-8192}
+      LLM_LOCAL_NUM_THREAD: ${LLM_LOCAL_NUM_THREAD:-8}
+      LLM_LOCAL_TEMPERATURE: ${LLM_LOCAL_TEMPERATURE:-0.2}
+      LLM_REMOTE_BASE_URL: ${LLM_REMOTE_BASE_URL:-https://openrouter.ai/api/v1}
+      LLM_REMOTE_API_KEY: ${LLM_REMOTE_API_KEY:-}
+      LLM_REMOTE_MODEL: ${LLM_REMOTE_MODEL:-openai/gpt-4o-mini}
+      LLM_REMOTE_TEMPERATURE: ${LLM_REMOTE_TEMPERATURE:-0.2}
+      LLM_REMOTE_HTTP_REFERER: ${LLM_REMOTE_HTTP_REFERER:-http://localhost:3000}
+      LLM_REMOTE_APP_TITLE: ${LLM_REMOTE_APP_TITLE:-rag}
     volumes:
       - ./source:/app/${LOADER_SOURCE_DIR}
       - ./public:/app/public
     depends_on:
       postgres:
         condition: service_healthy
+      ollama:
+        condition: service_started
     restart: unless-stopped
 
   docling:
-    image: docling
+    build:
+      context: ./loader/docling
+      dockerfile: Dockerfile
     container_name: docling
     ports:
       - "5001:5001"
     environment:
       UVICORN_PORT: 5001
+      DOCLING_SERVE_ENABLE_UI: "0"
+      # Warm start is blocked by EasyOCR/HF downloads; load on first request instead.
+      DOCLING_SERVE_LOAD_MODELS_AT_BOOT: "false"
+      DOCLING_SERVE_DEFAULT_OCR_KIND: "tesseract"
+      DOCLING_SERVE_DEFAULT_OCR_PRESET: "tesseract"
+      # Postman/OpenAPI often sends ocr_preset=auto, which falls back to EasyOCR
+      # and hangs on model downloads. Keep only tesseract.
+      DOCLING_SERVE_ALLOWED_OCR_PRESETS: '["default","tesseract"]'
+      DOCLING_SERVE_ALLOWED_OCR_KINDS: '["tesseract"]'
+      # Sync /v1/convert/file waits for the worker; first model pull often exceeds 120s.
+      DOCLING_SERVE_MAX_SYNC_WAIT: "600"
+      DOCLING_SERVE_ENG_LOC_SHARE_MODELS: "true"
+    volumes:
+      - docling_hf_cache:/root/.cache/huggingface
+      - docling_easyocr:/root/.EasyOCR
 
 volumes:
   postgres_data:
   ollama_data:
+  docling_hf_cache:
+  docling_easyocr:

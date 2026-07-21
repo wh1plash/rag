@@ -1,5 +1,6 @@
 loader/bin
 app/bin
+telegram/bin
 archive
 bad
 tmp

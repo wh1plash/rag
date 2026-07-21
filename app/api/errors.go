@@ -1,26 +1,37 @@
 package api
 
 import (
+	"errors"
 	"fmt"
+	"log"
 	"time"
 
 	"github.com/gofiber/fiber/v2"
 )
 
 func ErrorHandler(c *fiber.Ctx, err error) error {
-	if ApiError, ok := err.(Error); ok {
-		return c.Status(ApiError.Code).JSON(ApiError)
-	} else {
-		if ValError, ok := err.(ValidationError); ok {
-			return c.Status(ValError.Status).JSON(ValError)
-		}
+	var apiErr Error
+	if errors.As(err, &apiErr) {
+		log.Printf("%s request failed code=%d msg=%s", time.Now().Format(time.RFC3339), apiErr.Code, apiErr.Message)
+		return c.Status(apiErr.Code).JSON(apiErr)
 	}
 
-	ApiError := NewError(err.(*fiber.Error).Code, err.Error())
-	curTime := time.Now()
-	fmt.Printf("%s Request failed with code %d and message: %s\n", &curTime, ApiError.Code, ApiError.Message)
-	return c.Status(ApiError.Code).JSON(ApiError)
+	var valErr ValidationError
+	if errors.As(err, &valErr) {
+		return c.Status(valErr.Status).JSON(valErr)
+	}
 
+	var fiberErr *fiber.Error
+	if errors.As(err, &fiberErr) {
+		out := NewError(fiberErr.Code, fiberErr.Message)
+		log.Printf("%s request failed code=%d msg=%s", time.Now().Format(time.RFC3339), out.Code, out.Message)
+		return c.Status(out.Code).JSON(out)
+	}
+
+	// Обычные/wrapped ошибки (fmt.Errorf, LLM, DB, web search, …)
+	out := NewError(fiber.StatusInternalServerError, err.Error())
+	log.Printf("%s request failed code=%d msg=%s", time.Now().Format(time.RFC3339), out.Code, out.Message)
+	return c.Status(out.Code).JSON(out)
 }
 
 type Error struct {

@@ -13,4 +13,10 @@ build_app:
 run_app: build_app
 	@./app/bin/server
 
-.PHONY: build_loader, build_app
+build_tg:
+	@CGO_ENABLED=0 GOOS=linux GOARCH=amd64 go build -o telegram/bin/bot telegram/cmd/main.go
+
+run_tg: build_tg
+	@./telegram/bin/bot
+
+.PHONY: build_loader, build_app, build_tg

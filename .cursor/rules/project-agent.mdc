@@ -1,0 +1,36 @@
+---
+description: Как агентам работать в этом RAG-репозитории
+alwaysApply: true
+---
+
+# Project agent guide
+
+Перед крупными изменениями читай `ARCHITECTURE_REVIEW.md` и rules в `.cursor/rules/`.
+
+## Skills (явный запуск)
+
+| Задача | Skill |
+|--------|-------|
+| Ревью на Clean Architecture | `.cursor/skills/clean-arch-review/SKILL.md` |
+| Новая фича | `.cursor/skills/add-feature-clean-arch/SKILL.md` |
+| Новый адаптер | `.cursor/skills/add-adapter/SKILL.md` |
+| Рефактор к CA | `.cursor/skills/refactor-to-clean-arch/SKILL.md` |
+
+## Бинарники
+
+- `app/cmd` — HTTP API server
+- `loader/cmd` — ingest worker
+- `telegram/cmd` — bot → HTTP API
+
+Wiring только в composition root (`cmd`, `app/server.Run`).
+
+## Правила поведения агента
+
+1. Не класть бизнес-оркестрацию в Fiber handlers.
+2. Не добавлять `database/sql` / Docling / `net/http` в domain-типы (`types` / future `domain`).
+3. Новые зависимости — через интерфейс + инъекция из `cmd`.
+4. Не коммить `.env` и секреты; не хардкодить ключи.
+5. Эволюционный рефактор > big-bang rewrite.
+6. Не менять публичный HTTP контракт без явного запроса.
+
+Язык артефактов/объяснений для пользователя — русский; код — Go.

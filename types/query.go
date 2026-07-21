@@ -15,6 +15,8 @@ type Validater interface {
 type QueryParams struct {
 	Prompt   string `json:"prompt" validate:"required"`
 	UseLocal bool   `json:"use_local"`
+	// AllowWeb: nil = авто (включить, если настроен WebSearcher), false/true — явно.
+	AllowWeb *bool `json:"allow_web"`
 }
 
 type ConfigParams struct {
@@ -82,4 +84,6 @@ type Source struct {
 	Title     string `json:"title"`
 	ChunkText string `json:"chunk_text"`
 	Index     int    `json:"index"`
+	URL       string `json:"url,omitempty"`
+	Type      string `json:"type,omitempty"` // kb | web
 }

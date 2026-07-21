@@ -1,0 +1,51 @@
+---
+description: Clean Architecture dependency rule и границы слоёв для RAG-репозитория
+alwaysApply: true
+---
+
+# Clean Architecture
+
+Полный разбор: `ARCHITECTURE_REVIEW.md`. Целевой layout: `internal/{domain,port,usecase,adapter,delivery}` + `cmd/*`.
+
+## Dependency Rule
+
+```
+delivery → usecase → port ← adapter
+                ↘ domain ↗
+cmd/* только wiring
+```
+
+- `domain` — чистые типы и инварианты. **Запрещено:** `database/sql`, `net/http`, fiber, pgx, HTTP-клиенты LLM/Docling.
+- `usecase` зависит от **интерфейсов в `port`** (или объявленных рядом с usecase), не от `store`, `model`, `app/agent`.
+- `adapter` реализует порты и маппит infra ↔ domain.
+- `delivery` (Fiber/Telegram): parse → validate → usecase → response. Без SQL и бизнес-оркестрации.
+
+## Пока layout старый
+
+| Сейчас | Считай как |
+|--------|------------|
+| `types` (entity) | domain — не добавляй sql/http/docling |
+| `app/api`, `telegram` | delivery — выноси логику в usecase |
+| `store`, `model`, `app/agent`, `loader/internal` | adapters |
+| `loader/service` | usecase ingest |
+| `app/cmd`, `loader/cmd`, `app/server.Run` | composition root |
+
+## Интерфейсы
+
+Объявляй порт **у потребителя / в `port`**, не в пакете реализации.
+
+```go
+// ❌ BAD — порт в infra
+package store
+type DBStorer interface { Search(...) }
+
+// ✅ GOOD — порт внутрь, реализация снаружи
+package port
+type ChunkRepository interface { Search(ctx context.Context, emb []float32, k int) ([]domain.Chunk, error) }
+```
+
+## DI
+
+Composition root создаёт адаптеры и передаёт в usecase/handler. **Запрещено** внутри handler/loader вызывать `model.NewOllamaEmbedder()`.
+
+Секреты и URL — только из env/config, не хардкод в исходниках.

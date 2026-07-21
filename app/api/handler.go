@@ -5,7 +5,8 @@ import (
 	"fmt"
 	"log"
 	"os"
-	"rag/app/agent"
+	"rag/internal/port"
+	"rag/internal/usecase/webingest"
 	"rag/model"
 	"rag/types"
 	"sort"
@@ -20,15 +21,66 @@ import (
 )
 
 type RequestHandler struct {
-	contextStore store.DBStorer
-	embedder     model.EmbedderInterface
+	contextStore     store.DBStorer
+	embedder         model.EmbedderInterface
+	webSearcher      port.WebSearcher
+	webIngest        *webingest.Service
+	webOpts          port.SearchOptions
+	minChunkDistance float64
+	maxContextLength int
+	localLLM         port.AnswerGenerator
+	remoteLLM        port.AnswerGenerator
+}
+
+type RequestHandlerDeps struct {
+	Store            store.DBStorer
+	Embedder         model.EmbedderInterface
+	WebSearcher      port.WebSearcher // optional
+	WebIngest        *webingest.Service
+	WebOpts          port.SearchOptions
+	MinChunkDistance float64 // 0 = взять из MIN_CHUNK_DISTANCE / default 0.5
+	MaxContextLength int     // 0 = взять из MAX_CONTEXT_LENGTH / default 70000
+	LocalLLM         port.AnswerGenerator
+	RemoteLLM        port.AnswerGenerator
 }
 
 func NewRequestHandler(contextStore store.DBStorer) *RequestHandler {
-	embedder := model.NewOllamaEmbedder()
+	return NewRequestHandlerWithDeps(RequestHandlerDeps{
+		Store:    contextStore,
+		Embedder: model.NewOllamaEmbedder(),
+	})
+}
+
+func NewRequestHandlerWithDeps(deps RequestHandlerDeps) *RequestHandler {
+	embedder := deps.Embedder
+	if embedder == nil {
+		embedder = model.NewOllamaEmbedder()
+	}
+	opts := deps.WebOpts
+	if opts.MaxResults <= 0 {
+		opts.MaxResults = 3
+	}
+	if opts.SearchDepth == "" {
+		opts.SearchDepth = "basic"
+	}
+	minDist := deps.MinChunkDistance
+	if minDist <= 0 {
+		minDist = envFloat("MIN_CHUNK_DISTANCE", 0.5)
+	}
+	maxCtx := deps.MaxContextLength
+	if maxCtx <= 0 {
+		maxCtx = envInt("MAX_CONTEXT_LENGTH", 70000)
+	}
 	return &RequestHandler{
-		contextStore: contextStore,
-		embedder:     embedder,
+		contextStore:     deps.Store,
+		embedder:         embedder,
+		webSearcher:      deps.WebSearcher,
+		webIngest:        deps.WebIngest,
+		webOpts:          opts,
+		minChunkDistance: minDist,
+		maxContextLength: maxCtx,
+		localLLM:         deps.LocalLLM,
+		remoteLLM:        deps.RemoteLLM,
 	}
 }
 
@@ -44,19 +96,20 @@ func (h *RequestHandler) HandleRequest(c *fiber.Ctx) error {
 	}
 
 	prompt := params.Prompt
+	ctx := c.Context()
 
 	embededPrompt, err := h.embedder.Embed(prompt) //TODO set cfg from DB id =1
 	if err != nil {
 		return err
 	}
 
-	similarChunks, err := h.contextStore.Search(context.Background(), embededPrompt, 3)
+	similarChunks, err := h.contextStore.Search(ctx, embededPrompt, 5)
 	if err != nil {
 		fmt.Println("error to get context from DB:", err)
 		return err
 	}
 
-	// 4. Фильтруем чанки по качеству (distance)
+	// 4. Фильтруем чанки по качеству (distance = cosine similarity)
 	qualityChunks, err := h.filterChunks(similarChunks)
 	if err != nil {
 		return err
@@ -67,48 +120,68 @@ func (h *RequestHandler) HandleRequest(c *fiber.Ctx) error {
 		confidence = qualityChunks[0].Distance
 	}
 
-	fmt.Println("Count chunks before extend", len(qualityChunks))
-	// 4.1 Обогащаем выборку когерентными чанками
-	cohChunks, err := h.extendChunks(qualityChunks)
-	if err != nil {
-		fmt.Println(err)
-		return err
+	var (
+		promptContext string
+		sources       []types.Source
+	)
+
+	if len(qualityChunks) == 0 && h.shouldUseWeb(params) {
+		log.Printf("[WEB] no quality KB chunks — fallback to web search")
+		promptContext, sources, confidence, err = h.webFallback(ctx, prompt)
+		if err != nil {
+			return err
+		}
+	} else {
+		fmt.Println("Count chunks before extend", len(qualityChunks))
+		cohChunks, err := h.extendChunks(qualityChunks)
+		if err != nil {
+			fmt.Println(err)
+			return err
+		}
+		fmt.Println("Count chunks after extend", len(cohChunks))
+
+		var contextChunks []types.Chunk
+		promptContext, contextChunks = h.buildContext(cohChunks)
+		sources, err = h.formatSources(contextChunks)
+		if err != nil {
+			fmt.Println("Handle the error:", err)
+			return err
+		}
 	}
-	fmt.Println("Count chunks after extend", len(cohChunks))
-
-	// 5. Формируем контекст из найденных чанков
-	promptContext, contextChunks := h.buildContext(cohChunks)
-
-	sources, err := h.formatSources(contextChunks)
-	if err != nil {
-		fmt.Println("Handle the error:", err)
-		return err
-	}
-
-	// fmt.Println("after builder: \n", promptContext)
-	// return c.JSON("ok")
 
 	if promptContext == "" {
 		promptContext = "empty"
 	}
 
-	cfg, err := h.contextStore.GetConfig(context.Background(), 2)
+	cfg, err := h.contextStore.GetConfig(ctx, 2)
 	if err != nil {
 		return err
 	}
 
-	var output string
+	gen := h.remoteLLM
+	route := "remote"
 	if params.UseLocal {
-		output, err = agent.GenerateAnswer(promptContext, prompt, cfg)
-	} else {
-		output, err = agent.GenerateAnswerCohere(promptContext, prompt, cfg)
+		gen = h.localLLM
+		route = "local"
+	}
+	if gen == nil {
+		return fmt.Errorf("llm generator is not configured (use_local=%v)", params.UseLocal)
 	}
 
+	log.Printf("[RAG] calling LLM route=%s use_local=%v context_chars=%d question=%q",
+		route, params.UseLocal, len(promptContext), truncateRunes(prompt, 120))
+
+	output, err := gen.Generate(ctx, port.AnswerRequest{
+		System:   cfg.PromptStr,
+		Context:  promptContext,
+		Question: prompt,
+	})
 	if err != nil {
+		log.Printf("[RAG] LLM route=%s error: %v", route, err)
 		return err
 	}
+	log.Printf("[RAG] LLM route=%s done answer_chars=%d", route, len(output))
 
-	//return c.JSON(output)
 	resp := &types.SearchResponse{
 		Answer:     output,
 		Sources:    sources,
@@ -116,6 +189,43 @@ func (h *RequestHandler) HandleRequest(c *fiber.Ctx) error {
 		Timestamp:  time.Now(),
 	}
 	return c.JSON(resp)
+}
+
+func (h *RequestHandler) shouldUseWeb(params types.QueryParams) bool {
+	if h.webSearcher == nil || h.webIngest == nil {
+		return false
+	}
+	if params.AllowWeb != nil {
+		return *params.AllowWeb
+	}
+	return true
+}
+
+func (h *RequestHandler) webFallback(ctx context.Context, query string) (string, []types.Source, float64, error) {
+	hits, err := h.webSearcher.Search(ctx, query, h.webOpts)
+	if err != nil {
+		return "", nil, 0, fmt.Errorf("web search: %w", err)
+	}
+	if len(hits) == 0 {
+		log.Printf("[WEB] search returned 0 hits for query=%q", query)
+		return "", nil, 0, nil
+	}
+	log.Printf("[WEB] got %d hits, ingesting into KB...", len(hits))
+
+	docs, err := h.webIngest.SaveHits(ctx, hits)
+	if err != nil {
+		return "", nil, 0, fmt.Errorf("web ingest: %w", err)
+	}
+	if len(docs) == 0 {
+		return "", nil, 0, nil
+	}
+
+	promptContext, sources := webingest.BuildContext(docs, h.maxContextLength)
+	confidence := hits[0].Score
+	if confidence <= 0 {
+		confidence = 1.0
+	}
+	return promptContext, sources, confidence, nil
 }
 
 func (h *RequestHandler) formatSources(chunks []types.Chunk) ([]types.Source, error) {
@@ -126,11 +236,17 @@ func (h *RequestHandler) formatSources(chunks []types.Chunk) ([]types.Source, er
 			return nil, err
 		}
 
+		srcType := "kb"
+		if doc.Source == "web" {
+			srcType = "web"
+		}
 		sources[i] = types.Source{
 			DocID:     chunk.DocID.String(),
 			Title:     doc.Title,
 			ChunkText: chunk.Content,
 			Index:     chunk.Index,
+			URL:       doc.SourcePath,
+			Type:      srcType,
 		}
 	}
 	return sources, nil
@@ -183,7 +299,7 @@ func (h *RequestHandler) extendChunks(chunks []types.Chunk) ([]types.Chunk, erro
 
 func (h *RequestHandler) filterChunks(chunks []types.Chunk) ([]types.Chunk, error) {
 	result := make([]types.Chunk, 0, len(chunks))
-	minDistance := 0.55 // Минимальный допустимый distance для релевантного результата
+	minDistance := h.minChunkDistance
 	for _, chunk := range chunks {
 		if chunk.Distance > minDistance {
 			result = append(result, chunk)
@@ -195,32 +311,26 @@ func (h *RequestHandler) filterChunks(chunks []types.Chunk) ([]types.Chunk, erro
 }
 
 func (h *RequestHandler) buildContext(chunks []types.Chunk) (string, []types.Chunk) {
-	// var context string
-	maxContextLength := 70000 // Максимальный размер контекста в символах
-	// currentLength := len(context)
+	maxContextLength := h.maxContextLength
 	overlap, _ := strconv.Atoi(os.Getenv("CHUNK_OVERLAP"))
 
-	// 1️⃣ Сначала сортируем все чанки по Weight (по убыванию)
 	sort.SliceStable(chunks, func(i, j int) bool {
 		wi := chunks[i].Distance
 		wj := chunks[j].Distance
 		return wi > wj
 	})
 
-	// 2️⃣ Группируем чанки по doc_id
 	grouped := make(map[uuid.UUID][]types.Chunk)
 	for _, ch := range chunks {
 		grouped[ch.DocID] = append(grouped[ch.DocID], ch)
 	}
 
-	// 3️⃣ Сортируем внутри каждой группы по позиции (Index)
 	for id := range grouped {
 		sort.SliceStable(grouped[id], func(i, j int) bool {
 			return grouped[id][i].Index < grouped[id][j].Index
 		})
 	}
 
-	//originalCount := len(chunks)
 	var (
 		sb            strings.Builder
 		contextChunks []types.Chunk
@@ -235,20 +345,15 @@ func (h *RequestHandler) buildContext(chunks []types.Chunk) (string, []types.Chu
 
 		for i, ch := range docChunks {
 
-			// =========================
-			// 📊 TABLE ROW
-			// =========================
 			if ch.TableID.Valid {
 
 				tableID := ch.TableID.UUID
 
-				// таблицу уже добавляли → пропускаем
 				if _, ok := seenTables[tableID]; ok {
 					fmt.Println("filter tables")
 					continue
 				}
 
-				// грузим таблицу целиком
 				table, err := h.contextStore.GetTableByID(context.Background(), tableID)
 				if err != nil {
 					log.Printf("failed to load table %s: %v", tableID, err)
@@ -271,9 +376,6 @@ func (h *RequestHandler) buildContext(chunks []types.Chunk) (string, []types.Chu
 				continue
 			}
 
-			// =========================
-			// 📝 TEXT / IMAGE
-			// =========================
 			if ch.Section != "" {
 				sb.WriteString(fmt.Sprintf("## %s\n", ch.Section))
 			}
@@ -330,7 +432,7 @@ func (h *RequestHandler) removeChunkOverlaps(chunks []types.Chunk, overlap int) 
 				fmt.Printf("[OVERLAP] Обрезан текст чанка %d: %d -> %d символов\n", chunk.Index, originalLength, len(chunk.Content))
 				result = append(result, chunk)
 			} else {
-				fmt.Printf("[OVERLAP] Чанк %d пропущен полностью (текст короче overlap: %d < %d)\n", chunk.Index, len(chunk.Content), overlap)
+				fmt.Printf("[OVERLAP] Чанк %d пропущен полностью (текст короче overlap: %d < %d)\n", chunk.Index, len(words), overlap)
 			}
 
 		} else {
@@ -338,4 +440,36 @@ func (h *RequestHandler) removeChunkOverlaps(chunks []types.Chunk, overlap int) 
 		}
 	}
 	return result
+}
+
+func envInt(key string, fallback int) int {
+	v := strings.TrimSpace(os.Getenv(key))
+	if v == "" {
+		return fallback
+	}
+	n, err := strconv.Atoi(v)
+	if err != nil {
+		return fallback
+	}
+	return n
+}
+
+func envFloat(key string, fallback float64) float64 {
+	v := strings.TrimSpace(os.Getenv(key))
+	if v == "" {
+		return fallback
+	}
+	n, err := strconv.ParseFloat(v, 64)
+	if err != nil {
+		return fallback
+	}
+	return n
+}
+
+func truncateRunes(s string, n int) string {
+	r := []rune(s)
+	if len(r) <= n {
+		return s
+	}
+	return string(r[:n]) + "..."
 }

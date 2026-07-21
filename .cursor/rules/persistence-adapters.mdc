@@ -1,0 +1,33 @@
+---
+description: Persistence и внешние адаптеры — реализация портов и маппинг
+globs: "{store/**/*.go,model/**/*.go,app/agent/**/*.go,loader/internal/**/*.go,**/adapter/**/*.go}"
+alwaysApply: false
+---
+
+# Adapters (postgres, LLM, Docling, FS)
+
+## Роль
+
+Адаптер реализует порт из `port` / usecase и изолирует vendor SDK.
+
+- Postgres: `sql.Null*` и pgvector — **только здесь**; наружу отдавай domain-типы.
+- Ollama/Cohere: HTTP details, retries, timeouts — здесь; ключи из конфига конструктора.
+- Docling: `DoclingResponse` DTO живёт в адаптере, не в `types`.
+
+```go
+// ❌ BAD — domain тащит sql
+func (s *PostgresStore) Search(...) ([]types.Chunk, error) // Chunk с sql.Null*
+
+// ✅ GOOD
+func (s *Store) Search(ctx context.Context, emb []float32, k int) ([]domain.Chunk, error) {
+    // scan into sql.Null* locally, map to domain.Chunk
+}
+```
+
+## Запрещено
+
+- Объявлять «главный» порт репозитория только в пакете store без копии/переноса вовнутрь.
+- Читать `os.Getenv` и создавать клиентов глубоко в mid-level helpers — передавай deps в `New`.
+- Хардкодить API keys / URL (см. инцидент Cohere в `app/agent`).
+
+Schema: предпочитай `migrations/`, не раздувай `createRagTables` новой бизнес-логикой.

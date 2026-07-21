@@ -6,44 +6,30 @@ import (
 	"fmt"
 	"io"
 	"net/http"
+	"os"
 	"rag/types"
+	"strconv"
 	"time"
 
 	"github.com/pkoukk/tiktoken-go"
 )
 
-type CohereMessage struct {
-	Role    string `json:"role"`
-	Content string `json:"content"`
+type Options struct {
+	Temperature float64 `json:"temperature"`
+	NumCtx      int     `json:"num_ctx"`
+	NumThread   int     `json:"num_thread"`
+	TopP        float64 `json:"top_p"`
+	TopK        int     `json:"top_k"`
+	Repeat      float64 `json:"repeat_penalty"`
 }
 
-type CohereRequest struct {
-	Model    string          `json:"model"`
-	Messages []CohereMessage `json:"messages"`
-	Stream   bool            `json:"stream"`
-}
-type CohereResponse struct {
-	ID      string `json:"id"`
-	Message struct {
-		Role    string `json:"role"`
-		Content []struct {
-			Type string `json:"type"`
-			Text string `json:"text"`
-		} `json:"content"`
-	} `json:"message"`
-}
 type GenerateRequest struct {
-	Model      string  `json:"model"`
-	System     string  `json:"system"`
-	Prompt     string  `json:"prompt"`
-	Stream     bool    `json:"stream"`
-	Temp       float64 `json:"temperature"`
-	TopP       float64 `json:"top_p"`
-	TopK       int     `json:"top_k"`
-	NumPredict int     `json:"num_predict"`
-	NumCtx     int     `json:"num_ctx"`
-	NumThreads int     `json:"num_threads"`
-	Repeat     float64 `json:"repeat_penalty"`
+	Model   string   `json:"model"`
+	System  string   `json:"system"`
+	Prompt  string   `json:"prompt"`
+	Stream  bool     `json:"stream"`
+	Stop    []string `json:"stop,omitempty"`
+	Options Options  `json:"options"`
 }
 
 type GenerateResponse struct {
@@ -78,9 +64,13 @@ func MakePrompt(text string) string {
 func SendToOllama(prompt string, cfg types.LLMConfig) (string, error) {
 	payload := GenerateRequest{
 		Model:  cfg.Model,
-		System: cfg.PromptStr, //"Ты корректор русского языка. Сохрани стиль и смысл. Верни только исправленный текст без пояснений. Ничего не додумывай и не изменяй смысл.",
+		System: cfg.PromptStr,
 		Prompt: prompt,
 		Stream: false,
+		Options: Options{
+			NumCtx:    envInt("LLM_LOCAL_NUM_CTX", 8192),
+			NumThread: envInt("LLM_LOCAL_NUM_THREAD", 8),
+		},
 	}
 
 	body, err := json.Marshal(payload)
@@ -105,146 +95,36 @@ func SendToOllama(prompt string, cfg types.LLMConfig) (string, error) {
 
 	var llmResp GenerateResponse
 	if err := json.Unmarshal(respBody, &llmResp); err != nil {
-		return "", err
+		return "", fmt.Errorf("unmarshal ollama response: %w", err)
 	}
 
 	return llmResp.Response, nil
 }
 
-func GenerateAnswerCohere(context string, question string, cfg types.LLMConfig) (string, error) {
-	url := "https://api.cohere.com/v2/chat"
-	apiKey := "cQ9H6hdb9sshZTtgMvEDgHB4DoopOLZ3YxFuW0AS"
-	start := time.Now()
-	defer func() {
-		fmt.Printf("LLM answer tooks %v\n", time.Since(start))
-	}()
-
-	fmt.Println("Startin promt to LLM...")
-
-	prompt := fmt.Sprintf(`Контекст з декількох документів:
-Контекст:
-%s
-Запит:
-%s 
-Відповідь:`, context, question)
-
-	reqBody, _ := json.Marshal(CohereRequest{
-		Model:  "command-a-03-2025",
-		Stream: false,
-		Messages: []CohereMessage{
-			{
-				Role:    "system",
-				Content: cfg.PromptStr,
-			},
-			{
-				Role:    "user",
-				Content: prompt,
-			},
-		},
-	})
-	req, err := http.NewRequest("POST", url, bytes.NewBuffer(reqBody))
-	if err != nil {
-		fmt.Println("Error to prompting Cohere")
-	}
-	req.Header.Set("Authorization", "Bearer "+apiKey)
-	req.Header.Set("Content-Type", "application/json")
-
-	resp, err := http.DefaultClient.Do(req)
-	if err != nil {
-		return "", err
-	}
-	defer resp.Body.Close()
-
-	body, _ := io.ReadAll(resp.Body)
-
-	fmt.Println("RAW RESPONSE:", string(body))
-	var coResp CohereResponse
-	_ = json.Unmarshal(body, &coResp)
-
-	var answer string
-	if len(coResp.Message.Content) > 0 {
-		answer = coResp.Message.Content[0].Text
-	}
-	return answer, nil
-}
-
-func GenerateAnswer(context string, question string, cfg types.LLMConfig) (string, error) {
-	start := time.Now()
-	defer func() {
-		fmt.Printf("LLM answer tooks %v\n", time.Since(start))
-	}()
-
-	fmt.Println("Startin promt to LLM...")
-
-	prompt := fmt.Sprintf(`Контекст из нескольких документов:
-Контекст:
-%s
-Вопрос:
-%s 
-Ответ:`, context, question)
-
-	reqBody, _ := json.Marshal(GenerateRequest{
-		Model:      cfg.Model,
-		System:     cfg.PromptStr,
-		Prompt:     prompt,
-		Stream:     false,
-		Temp:       0.1,
-		TopP:       0.9,
-		TopK:       40,
-		NumPredict: 512,
-		NumCtx:     4096,
-		NumThreads: 8,
-		Repeat:     1.1,
-	})
-
-	count, _ := CountTokensLlama(reqBody)
-	fmt.Println("Size of Prompt with system in tokens:", count)
-
-	fmt.Println("Size of Prompt with system in symbols:", len(reqBody))
-	fmt.Println("-----------")
-
-	// fmt.Println(prompt)
-	// return "ok", nil
-
-	fmt.Printf("Prompting to: %s, %s\n", cfg.Url, cfg.Model)
-	resp, err := http.Post(cfg.Url,
-		"application/json",
-		bytes.NewBuffer(reqBody),
-	)
-	if err != nil {
-		return "", nil
-	}
-	defer resp.Body.Close()
-
-	body, _ := io.ReadAll(resp.Body)
-
-	var genResp GenerateResponse
-	if err := json.Unmarshal(body, &genResp); err == nil && genResp.Response != "" {
-		return genResp.Response, err
-	}
-	fmt.Printf("%+v\n", genResp)
-
-	// Потоковый ответ: соберём всё в строку
-	type StreamChunk struct {
-		Response string `json:"response"`
-	}
-	var output string
-	decoder := json.NewDecoder(bytes.NewReader(body))
-	for decoder.More() {
-		var chunk StreamChunk
-		if err := decoder.Decode(&chunk); err == nil {
-			output += chunk.Response
-		}
-	}
-	return output, nil
-
+func ConcatToBytes(s1, s2 string) []byte {
+	b := make([]byte, 0, len(s1)+len(s2))
+	b = append(b, s1...)
+	b = append(b, s2...)
+	return b
 }
 
 func CountTokensLlama(data []byte) (int, error) {
-	enc, err := tiktoken.EncodingForModel("gpt-3.5-turbo") // Можно заменить на любую совместимую модель
+	enc, err := tiktoken.EncodingForModel("gpt-3.5-turbo")
 	if err != nil {
 		return 0, err
 	}
 	tokens := enc.Encode(string(data), nil, nil)
 	return len(tokens), nil
+}
+
+func envInt(key string, fallback int) int {
+	v := os.Getenv(key)
+	if v == "" {
+		return fallback
+	}
+	n, err := strconv.Atoi(v)
+	if err != nil {
+		return fallback
+	}
+	return n
 }

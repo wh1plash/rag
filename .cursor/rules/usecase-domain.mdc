@@ -1,0 +1,46 @@
+---
+description: Use case и domain — чистая логика без framework/SQL
+globs: "{types/**/*.go,loader/service/**/*.go,**/usecase/**/*.go,**/domain/**/*.go,**/port/**/*.go}"
+alwaysApply: false
+---
+
+# Use case & domain
+
+## Domain (`types` сейчас → `internal/domain`)
+
+- Только plain Go-типы и инварианты (`Document`, `Chunk`, конфиг домена).
+- Опциональные поля: `*string`, `*int64`, value objects — **не** `sql.NullString`.
+- Не класть сюда: Fiber, pgx, Docling JSON, HTTP status codes.
+
+```go
+// ❌ BAD
+type Chunk struct {
+    Key sql.NullString
+}
+
+// ✅ GOOD
+type Chunk struct {
+    Key *string
+}
+```
+
+## Use case (`loader/service`, будущий `internal/usecase/*`)
+
+- Оркестрация: порты in/out, правила (filter/extend chunks, ShouldUpdateFile).
+- Зависит от интерфейсов, не от `*PostgresStore`, `*PDFLoader`, package `agent`.
+- Не импортировать fiber / telegram API.
+
+```go
+// ❌ BAD
+type Service struct {
+    loader *internal.PDFLoader
+}
+
+// ✅ GOOD
+type Ingest struct {
+    source port.DocumentSource
+    repo   port.DocumentRepository
+}
+```
+
+Новый фича-флоу: сначала use case + порты, потом adapter и thin handler.

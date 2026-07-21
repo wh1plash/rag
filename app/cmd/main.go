@@ -16,7 +16,6 @@ func init() {
 
 func main() {
 	s := server.NewServer(os.Getenv("SERVER_ADDR"))
-
 	go s.Run()
 
 	sigch := make(chan os.Signal, 1)

@@ -146,7 +146,7 @@ func (s *Service) DocumentSave(ctx context.Context, docChan <-chan *types.Docume
 
 		if !s.ShouldUpdateFile(ctx, doc.ID, doc.UpdatedAt) {
 			s.loader.MoveToArchive(doc.SourcePath, 1)
-			return nil
+			continue
 		}
 
 		//remove old chunks from DB

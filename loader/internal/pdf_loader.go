@@ -369,24 +369,27 @@ func (l *PDFLoader) splitByChunks(filePath string, id uuid.UUID, chunkSize, over
 	var tables []types.FullTable
 	pos := 0
 
-	err := RemoveHeaderFooterCrop(filePath, filePath, 46, 57)
-	if err != nil {
-		return nil, tables, err
-	}
+	// err := RemoveHeaderFooterCrop(filePath, filePath, 46, 57)
+	// if err != nil {
+	// 	return nil, tables, err
+	// }
 
+	fmt.Println("Starting to convert file to MD...")
 	mdFile, err := convertPDFToMD(filePath)
 	if err != nil {
 		return nil, tables, err
 	}
 
+	fmt.Println("Starting to tokenize file...")
 	// 1. Tokenize markdown (TEXT + IMAGE + TABLE)
 	tokens := tokenizeMD(mdFile)
-
+	fmt.Println("Pass 1 tokenize file...")
 	// 2. Merge adjacent TEXT tokens
 	tokens = mergeAdjacentText(tokens)
-
+	fmt.Println("Pass 2 tokenize file...")
 	// 3. Merge adjacent Tables tokens
 	tokens = mergeAdjacentTables(tokens)
+	fmt.Println("Pass 3 tokenize file...")
 
 	// 4. Unified pass
 	for _, token := range tokens {
@@ -412,6 +415,7 @@ func (l *PDFLoader) splitByChunks(filePath string, id uuid.UUID, chunkSize, over
 			cancel()
 			if err != nil {
 				log.Printf("image recognition error: %v", err)
+				time.Sleep(1 * time.Second)
 				continue
 			}
 
@@ -424,6 +428,7 @@ func (l *PDFLoader) splitByChunks(filePath string, id uuid.UUID, chunkSize, over
 			embedding, err := l.embedder.Embed(jsonContent)
 			if err != nil {
 				log.Printf("embedding image json error: %v", err)
+				return nil, nil, err
 			}
 
 			chunks = append(chunks, types.Chunk{
@@ -527,9 +532,21 @@ func convertPDFToMD(filePath string) (string, error) {
 		return "", err
 	}
 
-	writer.Close()
+	// Добавляем дополнительное поле формы для OCR пресета
+	if err := writer.WriteField("ocr_preset", "tesseract"); err != nil {
+		return "", err
+	}
 
-	req, err := http.NewRequest("POST", "http://localhost:5001/v1/convert/file", &buf)
+	if err := writer.Close(); err != nil {
+		return "", err
+	}
+
+	doclingURL := os.Getenv("DOCLING_URL")
+	if doclingURL == "" {
+		doclingURL = "http://localhost:5001"
+	}
+
+	req, err := http.NewRequest("POST", strings.TrimRight(doclingURL, "/")+"/v1/convert/file", &buf)
 	if err != nil {
 		return "", err
 	}
